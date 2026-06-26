@@ -25,9 +25,9 @@ Update these values when changing the CI compiler or CMake version. The Linux jo
 
 需要调整 CI 编译器或 CMake 版本时，改这里即可。Linux job 会安装匹配的 LLVM/libc++ 包，并把 `libc++.modules.json` 传给 CMake；macOS job 使用 Homebrew LLVM。
 
-The Linux job also passes `-stdlib=libc++` plus LLVM libc++ include/library paths. This is required because `clang-scan-deps` must be able to include libc++ internals such as `__config` while scanning `std.cppm`.
+The Linux job also passes `-stdlib=libc++` plus LLVM libc++ include/library paths. This is required because `clang-scan-deps` must be able to include libc++ internals such as `__config` while scanning `std.cppm`. It also adds `-lc++abi` through `CMAKE_CXX_STANDARD_LIBRARIES` so the final executables link against libc++abi after project objects and static libraries.
 
-Linux job 还会传入 `-stdlib=libc++` 以及 LLVM libc++ 的 include/library 路径。原因是 `clang-scan-deps` 扫描 `std.cppm` 时必须能找到 `__config` 等 libc++ 内部头文件。
+Linux job 还会传入 `-stdlib=libc++` 以及 LLVM libc++ 的 include/library 路径。原因是 `clang-scan-deps` 扫描 `std.cppm` 时必须能找到 `__config` 等 libc++ 内部头文件。它还通过 `CMAKE_CXX_STANDARD_LIBRARIES` 添加 `-lc++abi`，确保最终可执行文件在项目对象和静态库之后链接 libc++abi。
 
 ## Project Version / 项目版本
 
