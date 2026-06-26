@@ -1,0 +1,14 @@
+CompileFlags:
+  CompilationDatabase: build
+  Add:
+    - "-Wno-reserved-module-identifier"
+
+Diagnostics:
+  Suppress:
+    - "unused-includes"
+
+Index:
+  Background: Build
+
+Hover:
+  ShowAKA: Yes

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  LLVM_VERSION: "22"
+  CMAKE_VERSION: "4.3.1"
+  CMAKE_BUILD_TYPE: Release
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain on Ubuntu
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget lsb-release gnupg software-properties-common python3-pip ninja-build
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh "$LLVM_VERSION"
+          sudo apt-get install -y "clang-$LLVM_VERSION" "libc++-$LLVM_VERSION-dev" "libc++abi-$LLVM_VERSION-dev"
+          python3 -m pip install --user "cmake==$CMAKE_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install toolchain on macOS
+        if: runner.os == 'macOS'
+        run: brew install llvm cmake ninja
+
+      - name: Configure
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            CXX_COMPILER="clang++-$LLVM_VERSION"
+            LIBCXX_MODULES_JSON="$(find "/usr/lib/llvm-$LLVM_VERSION" -name libc++.modules.json -print -quit)"
+            if [[ -z "$LIBCXX_MODULES_JSON" ]]; then
+              echo "Could not find libc++.modules.json for LLVM $LLVM_VERSION" >&2
+              exit 1
+            fi
+            EXTRA_ARGS=(-DCMAKE_CXX_STDLIB_MODULES_JSON="$LIBCXX_MODULES_JSON")
+          else
+            CXX_COMPILER="/opt/homebrew/opt/llvm/bin/clang++"
+            EXTRA_ARGS=()
+          fi
+
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+            -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+            "${EXTRA_ARGS[@]}"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
