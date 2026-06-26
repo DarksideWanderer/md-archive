@@ -25,6 +25,10 @@ Update these values when changing the CI compiler or CMake version. The Linux jo
 
 需要调整 CI 编译器或 CMake 版本时，改这里即可。Linux job 会安装匹配的 LLVM/libc++ 包，并把 `libc++.modules.json` 传给 CMake；macOS job 使用 Homebrew LLVM。
 
+The Linux job also passes `-stdlib=libc++` plus LLVM libc++ include/library paths. This is required because `clang-scan-deps` must be able to include libc++ internals such as `__config` while scanning `std.cppm`.
+
+Linux job 还会传入 `-stdlib=libc++` 以及 LLVM libc++ 的 include/library 路径。原因是 `clang-scan-deps` 扫描 `std.cppm` 时必须能找到 `__config` 等 libc++ 内部头文件。
+
 ## Project Version / 项目版本
 
 The CLI version printed by `md-archive --version` comes from `project(... VERSION ...)` in `CMakeLists.txt`. CMake injects it into `src/main.cpp` as `MD_ARCHIVE_VERSION`.

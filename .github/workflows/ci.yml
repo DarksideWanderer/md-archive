@@ -49,7 +49,29 @@ jobs:
               echo "Could not find libc++.modules.json for LLVM $LLVM_VERSION" >&2
               exit 1
             fi
-            EXTRA_ARGS=(-DCMAKE_CXX_STDLIB_MODULES_JSON="$LIBCXX_MODULES_JSON")
+            LIBCXX_INCLUDE_DIR="/usr/lib/llvm-$LLVM_VERSION/include/c++/v1"
+            LIBCXX_LIBRARY_DIR="/usr/lib/llvm-$LLVM_VERSION/lib"
+            CXX_FLAGS="-stdlib=libc++"
+            LINKER_FLAGS="-stdlib=libc++"
+
+            if [[ -d "$LIBCXX_INCLUDE_DIR" ]]; then
+              CXX_FLAGS="$CXX_FLAGS -isystem $LIBCXX_INCLUDE_DIR"
+            fi
+            if [[ -d "$LIBCXX_LIBRARY_DIR" ]]; then
+              LINKER_FLAGS="$LINKER_FLAGS -L$LIBCXX_LIBRARY_DIR -Wl,-rpath,$LIBCXX_LIBRARY_DIR"
+            fi
+
+            echo "Compiler: $CXX_COMPILER"
+            "$CXX_COMPILER" --version
+            echo "libc++ modules: $LIBCXX_MODULES_JSON"
+            echo "CXX flags: $CXX_FLAGS"
+            echo "Linker flags: $LINKER_FLAGS"
+
+            EXTRA_ARGS=(
+              -DCMAKE_CXX_STDLIB_MODULES_JSON="$LIBCXX_MODULES_JSON"
+              -DCMAKE_CXX_FLAGS="$CXX_FLAGS"
+              -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS"
+            )
           else
             CXX_COMPILER="/opt/homebrew/opt/llvm/bin/clang++"
             EXTRA_ARGS=()
