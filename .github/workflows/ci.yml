@@ -66,11 +66,13 @@ jobs:
             echo "libc++ modules: $LIBCXX_MODULES_JSON"
             echo "CXX flags: $CXX_FLAGS"
             echo "Linker flags: $LINKER_FLAGS"
+            echo "Standard libraries: -lc++abi"
 
             EXTRA_ARGS=(
               -DCMAKE_CXX_STDLIB_MODULES_JSON="$LIBCXX_MODULES_JSON"
               -DCMAKE_CXX_FLAGS="$CXX_FLAGS"
               -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS"
+              -DCMAKE_CXX_STANDARD_LIBRARIES="-lc++abi"
             )
           else
             CXX_COMPILER="/opt/homebrew/opt/llvm/bin/clang++"
