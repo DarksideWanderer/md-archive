@@ -4,6 +4,11 @@ import md_archive.tag_manager;
 
 namespace fs = std::filesystem;
 
+std::string path_utf8(const fs::path& path) {
+    const auto value = path.u8string();
+    return {reinterpret_cast<const char*>(value.data()), value.size()};
+}
+
 namespace {
 
 constexpr int exit_success = 0;
@@ -197,11 +202,11 @@ int main(int argc, char* argv[]) {
                 std::cout << "  (无文档)\n";
             } else {
                 for (std::size_t i = 0; i < docs.size(); ++i) {
-                    std::cout << "  " << (i + 1) << ". " << docs[i].filename().string() << " -> "
-                              << docs[i].string() << "\n";
+                    std::cout << "  " << (i + 1) << ". " << path_utf8(docs[i].filename()) << " -> "
+                              << path_utf8(docs[i]) << "\n";
                 }
                 std::cout << "\n共 " << docs.size() << " 篇\n";
-                std::cout << "查看索引: " << (cfg->workspace / cfg->tags_dir / (tag + ".md")).string()
+                std::cout << "查看索引: " << path_utf8(cfg->workspace / cfg->tags_dir / (tag + ".md"))
                           << "\n";
             }
         } else {
@@ -215,7 +220,7 @@ int main(int argc, char* argv[]) {
                     std::cout << "  " << (i + 1) << ". " << tags[i] << " (" << docs.size() << " 篇)\n";
                 }
                 std::cout << "\n共 " << tags.size() << " 个标签\n";
-                std::cout << "标签索引目录: " << (cfg->workspace / cfg->tags_dir) << "\n";
+                std::cout << "标签索引目录: " << path_utf8(cfg->workspace / cfg->tags_dir) << "\n";
             }
         }
         return exit_success;
@@ -229,7 +234,7 @@ int main(int argc, char* argv[]) {
         } else {
             for (std::size_t i = 0; i < docs.size(); ++i) {
                 auto rel = fs::relative(docs[i], cfg->workspace);
-                std::cout << "  " << (i + 1) << ". " << rel.string() << "\n";
+                std::cout << "  " << (i + 1) << ". " << path_utf8(rel) << "\n";
             }
             std::cout << "\n共 " << docs.size() << " 篇\n";
         }
