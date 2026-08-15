@@ -89,6 +89,15 @@ Uninstall removes files recorded by CMake's `install_manifest.txt`:
 make uninstall
 ```
 
+The Makefile keeps MSYS2's `/usr/bin/cmake`, installs to `/usr`
+(`/usr/bin/md-archive.exe`), and uses only the CLANG64 compiler/runtime from
+`/clang64/bin`. On macOS/Linux it uses `cmake` from `PATH` and installs to
+`/usr/local`. Override with `make install INSTALL_PREFIX=/your/prefix`.
+
+Makefile 会安装到平台对应的 Unix 前缀：MSYS2 使用 `/usr`
+（即 `/usr/bin/md-archive.exe`），macOS/Linux 使用 `/usr/local`。可通过
+`make install INSTALL_PREFIX=/your/prefix` 覆盖。
+
 ## Configuration / 配置
 
 Create a local config:
@@ -220,11 +229,13 @@ ctest --test-dir build --output-on-failure
 Starting with 0.2.0, every released code state is retained by an annotated Git
 tag. `v0.2.0` is the preserved pre-hash-storage baseline; 1.0 introduces the
 hash-addressed archive format and automatic legacy migration. `v1.0.1` fixes
-automatic Clang discovery and installation from an MSYS2 shell.
+automatic Clang discovery from an MSYS2 shell. `v1.0.2` installs into the
+MSYS2 `/usr/bin` prefix instead of Windows Program Files.
 
 从 0.2.0 开始，每个发布版本都使用带说明的 Git 标签保留完整代码状态。
 `v0.2.0` 是引入哈希存储前的基线；1.0 引入哈希寻址归档格式和旧版自动迁移。
 `v1.0.1` 修复从 MSYS2 shell 构建安装时的 Clang 自动发现。
+`v1.0.2` 修复 MSYS2 安装前缀，使 `make install` 写入 `/usr/bin`。
 
 The main code is built through `.cppm` module interfaces and `import std;`. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for toolchain notes.
 

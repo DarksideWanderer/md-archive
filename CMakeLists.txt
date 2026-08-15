@@ -41,7 +41,7 @@ if(NOT DEFINED CMAKE_CXX_STDLIB_MODULES_JSON)
 endif()
 
 project(md-archive
-    VERSION 1.0.1
+    VERSION 1.0.2
     DESCRIPTION "Markdown archive and tag navigation CLI"
     LANGUAGES CXX)
 
