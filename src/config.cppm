@@ -46,8 +46,8 @@ export struct Config {
     /// 标签导航目录，相对 workspace。
     std::filesystem::path tags_dir;
 
-    /// Durable archive copy directory, relative to workspace.
-    /// 持久归档副本目录，相对 workspace。
+    /// Hash-addressed archive object directory, relative to workspace.
+    /// 哈希寻址归档对象目录，相对 workspace。
     std::filesystem::path archive_dir;
 
     /// Config file used to produce this Config, if one was found.
@@ -223,7 +223,7 @@ void write_example_config(std::ostream& out, const fs::path& workspace) {
     out << "workspace = " << to_utf8(workspace) << "\n";
     out << "# Tag navigation directory, relative to workspace / 标签导航目录，相对 workspace\n";
     out << "tags_dir = .tags\n";
-    out << "# Durable archive copy directory, relative to workspace / 内容存档目录，相对 workspace\n";
+    out << "# Hash-addressed archive directory, relative to workspace / 哈希寻址归档目录，相对 workspace\n";
     out << "archive_dir = .archive\n";
 }
 

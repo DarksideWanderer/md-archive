@@ -6,34 +6,33 @@
 
 ## Features / 功能特性
 
-- Copies source Markdown files into `.archive/` so archived content survives source deletion.
-- Creates `.tags/<tag>/` symlinks that point to `.archive/` copies.
-- Generates `.tags/<tag>.md` index files that link back to source files for editing in VS Code.
+- Stores one SHA-256-addressed backup object per unique Markdown content.
+- Records every source path in `.archive/index.tsv`, so copies and moves can be distinguished without duplicate backups.
+- Creates `.tags/<tag>/` links that point to the original source files.
 - Supports `add`, `scan`, `list`, `docs`, `remove`, `rebuild`, `init`, and `config` commands.
 - Uses C++23 named modules, `import std;`, CMake, Ninja, and zero external runtime dependencies.
 
-- 将源 Markdown 复制到 `.archive/`，源文件删除后归档副本仍保留。
-- 在 `.tags/<tag>/` 下创建指向 `.archive/` 副本的符号链接。
-- 生成 `.tags/<tag>.md` 标签索引，索引链接指向源文件，方便在 VS Code 中编辑。
+- 按 Markdown 完整内容的 SHA-256 哈希保存唯一备份对象。
+- 在 `.archive/index.tsv` 中记录所有源路径，可辨别复制和移动且不产生重复备份。
+- 在 `.tags/<tag>/` 下创建准确指向原始源文件的链接。
 - 支持 `add`、`scan`、`list`、`docs`、`remove`、`rebuild`、`init` 和 `config`。
 - 使用 C++23 命名模块、`import std;`、CMake、Ninja，无外部运行时依赖。
 
 ## How It Works / 工作原理
 
 ```text
-你的 .md 文件（源文件）              .archive/ 目录（内容副本，安全存储）
+你的 .md 文件（源文件）              .archive/ 目录（SHA-256 内容对象）
 ─────────────────────────────       ─────────────────────────────────────
-dijkstra.md                         .archive/dijkstra.md    ← 完整内容副本
+dijkstra.md                         .archive/objects/ab/abcdef….md
   ---                              （源文件删除后也不丢失）
   tags: [算法, 图论]
-  title: Dijkstra 最短路径           .tags/ 目录（自动生成）
+  title: Dijkstra 最短路径           .archive/index.tsv ← 源路径到哈希的表
   ---                               ───────────────────────
 segment-tree.md                     .tags/算法/
-  ---                                └── Dijkstra 最短路径.md -> ../../.archive/dijkstra.md
+  ---                                └── Dijkstra 最短路径.md -> ../../dijkstra.md
   tags: [数据结构, 算法]             .tags/图论/
-  title: 线段树完全指南                └── Dijkstra 最短路径.md -> ../../.archive/dijkstra.md
-  ---                               .tags/算法.md    ← 索引文件（链接指向源文件方便编辑）
-                                    .tags/图论.md    ← 同上
+  title: 线段树完全指南                └── Dijkstra 最短路径.md -> ../../dijkstra.md
+  ---
 ```
 
 Each archive operation:
@@ -41,9 +40,18 @@ Each archive operation:
 每次归档时：
 
 1. Parse top-of-file YAML frontmatter with `tags` and `title`.
-2. Copy the full Markdown file into `.archive/`, mirroring the workspace-relative path.
-3. Create symlinks under `.tags/<tag>/` pointing to the `.archive/` copy.
-4. Update `.tags/<tag>.md` indexes with links to source files.
+2. Hash the complete file with SHA-256 and store it once under `.archive/objects/`.
+3. Update `.archive/index.tsv` with the workspace-relative source path and hash.
+4. Create links under `.tags/<tag>/` pointing to the source file.
+
+Identical files at multiple paths share one object. If an indexed path disappears
+and identical content appears at a new path, it is treated as a move. Existing
+paths remain aliases, representing copies. Pre-1.0 path-mirrored archives are
+migrated automatically on the first command.
+
+多个路径下内容完全相同的文件共享一个对象。旧路径消失、相同内容出现在新路径时，
+会识别为移动；旧路径仍存在时则作为复制别名保留。1.0 以前按路径镜像的归档会在
+首次运行命令时自动迁移。
 
 ## Installation / 安装
 
@@ -159,12 +167,24 @@ See [docs/CLI.md](docs/CLI.md) for details.
 
 | Conflict / 冲突 | Without `--force` / 不带 `--force` | With `--force` / 带 `--force` |
 | --- | --- | --- |
-| Same source path / 相同源路径 | Warn and skip / 警告并跳过 | Replace archive copy and rebuild links / 覆盖归档副本并重建链接 |
+| Same source path / 相同源路径 | Warn and skip / 警告并跳过 | Re-hash content, update source mapping, prune unreferenced object, and rebuild links / 重新计算哈希、更新源映射、清理无引用对象并重建链接 |
 | Same title in a tag / 同标签内 title 冲突 | Skip that tag / 跳过该标签 | Replace the tag link / 覆盖标签链接 |
 
 `.archive/` is durable storage, not a temporary cache. `scan` skips `.archive/` and `.tags/`.
 
 `.archive/` 是持久内容副本，不是临时缓存。`scan` 会跳过 `.archive/` 和 `.tags/`。
+
+Commit `.archive/index.tsv` and `.archive/objects/`; they are the portable state
+of the archive. `.tags/` remains local and ignored because its link type is
+platform-specific. After a cross-platform clone, the first `md-archive` command
+uses the committed hash table to recreate tag links native to the current
+system. On Windows, md-archive falls back to hard links when native symbolic
+links are not permitted. `rebuild` remains available for an explicit pass.
+
+应提交 `.archive/index.tsv` 和 `.archive/objects/`，它们是可跨平台的归档状态。
+`.tags/` 因链接类型依赖平台而保持本地并被忽略。跨平台 clone 后，第一次运行任意
+`md-archive` 命令会根据已提交的哈希表重建当前系统的标签链接。Windows 无权创建
+原生符号链接时会自动改用硬链接；`rebuild` 可用于显式执行整理。
 
 ## Directory Layout / 目录结构
 
@@ -174,16 +194,16 @@ workspace/
 ├── note2.md
 ├── .archive/
 │   ├── .gitignore
-│   ├── note1.md
-│   └── notes/
-│       └── note2.md
+│   ├── index.tsv
+│   └── objects/
+│       ├── ab/abcdef….md
+│       └── f0/f01234….md
 ├── .tags/
 │   ├── .gitignore
-│   ├── 算法.md
 │   ├── 算法/
-│   │   └── 01背包问题.md -> ../../.archive/note1.md
+│   │   └── 01背包问题.md -> ../../note1.md
 │   └── 数据结构/
-│       └── 线段树.md -> ../../.archive/notes/note2.md
+│       └── 线段树.md -> ../../note2.md
 └── config.ini
 ```
 
@@ -194,6 +214,15 @@ cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Deb
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+## Version Backups / 版本备份
+
+Starting with 0.2.0, every released code state is retained by an annotated Git
+tag. `v0.2.0` is the preserved pre-hash-storage baseline; 1.0 introduces the
+hash-addressed archive format and automatic legacy migration.
+
+从 0.2.0 开始，每个发布版本都使用带说明的 Git 标签保留完整代码状态。
+`v0.2.0` 是引入哈希存储前的基线；1.0 引入哈希寻址归档格式和旧版自动迁移。
 
 The main code is built through `.cppm` module interfaces and `import std;`. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for toolchain notes.
 
@@ -214,9 +243,11 @@ Please read:
 - [docs/CLI.md](docs/CLI.md)
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 
-Do not commit generated `.archive/`, `.tags/`, local `config.ini`, build directories, or binaries.
+Commit `.archive/index.tsv` and `.archive/objects/` to preserve portable archive
+state. Do not commit `.tags/`, local `config.ini`, build directories, or binaries.
 
-请不要提交生成的 `.archive/`、`.tags/`、本地 `config.ini`、构建目录或二进制文件。
+请提交 `.archive/index.tsv` 和 `.archive/objects/` 以保留跨平台归档状态；不要提交
+`.tags/`、本地 `config.ini`、构建目录或二进制文件。
 
 ## License / 许可证
 
