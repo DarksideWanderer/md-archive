@@ -116,7 +116,9 @@ bool has_flag(const std::vector<std::string>& args, const std::string& long_name
 std::optional<Config> load_config_or_report(const ConfigOptions& options) {
     auto cfg = Config::resolve(options);
     if (!cfg) {
-        std::cerr << "提示: 可运行 `md-archive init` 生成 config.ini，或参考 config.example.ini。\n";
+        // Config::resolve() has already reported the concrete lookup, parse, or
+        // validation error.  Suggesting `init` here is actively misleading when
+        // a config file was found but contains an invalid value.
         return std::nullopt;
     }
     if (cfg->used_default_config) {

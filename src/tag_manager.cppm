@@ -2,17 +2,19 @@ export module md_archive.tag_manager;
 
 import std;
 import md_archive.path_encoding;
+import md_archive.content_hash;
+import md_archive.archive_store;
 import md_archive.frontmatter;
 export import md_archive.config;
 
 /**
- * @brief Coordinates archive copies, tag symlinks, and tag index files.
+ * @brief Coordinates hash-addressed archive objects and source tag links.
  *
  * @details TagManager owns the filesystem side effects of md-archive:
- * creating `.archive/`, creating `.tags/`, copying source Markdown files,
- * maintaining symlinks, and removing legacy tag index files.
+ * creating `.archive/`, creating `.tags/`, deduplicating source Markdown
+ * content, maintaining source links, and migrating legacy archives.
  *
- * 中文：协调归档副本和标签符号链接，并清理旧版标签索引文件。
+ * 中文：协调哈希寻址归档对象和源文件标签链接，并迁移旧版归档。
  */
 export class TagManager {
   public:
@@ -84,12 +86,15 @@ export class TagManager {
     Config cfg;
     std::filesystem::path tags_root;
     std::filesystem::path archive_root;
+    std::unique_ptr<md_archive::ArchiveStore> archive_store;
 
     static std::string safe_filename(const std::string& title);
     std::optional<std::filesystem::path> copy_to_archive(const std::filesystem::path& md_file);
     bool create_tag_entry(const std::filesystem::path& archive_copy, const std::string& tag,
                           const std::string& doc_title, bool force);
     void remove_legacy_tag_index(const std::string& tag);
+    void normalize_all_links(bool verbose);
+    void restore_links_from_index();
 
     struct DocInfo {
         std::string title;
@@ -123,7 +128,8 @@ bool is_within_directory(const fs::path& path, const fs::path& directory) {
 
 constexpr std::string_view target_marker = "<!-- md-archive-target: ";
 
-std::optional<fs::path> tag_entry_target(const fs::path& entry, const fs::path& tag_dir) {
+std::optional<fs::path> tag_entry_target(const fs::path& entry, const fs::path& tag_dir,
+                                         const fs::path& archive_root = {}) {
     std::error_code ec;
     if (fs::is_symlink(fs::symlink_status(entry, ec)))
         return tag_dir / fs::read_symlink(entry, ec);
@@ -147,6 +153,42 @@ std::optional<fs::path> tag_entry_target(const fs::path& entry, const fs::path& 
     if (!content.empty() && content.find('\n') == std::string::npos && content.ends_with(".md"))
         return tag_dir / from_utf8(content);
 
+    // A hard link is the privilege-free Windows fallback. Find the matching
+    // archive file by comparing filesystem identities.
+    if (!archive_root.empty() && fs::exists(archive_root)) {
+        fs::recursive_directory_iterator it(
+            archive_root, fs::directory_options::skip_permission_denied, ec);
+        const fs::recursive_directory_iterator end;
+        for (; it != end; it.increment(ec)) {
+            if (ec) {
+                ec.clear();
+                continue;
+            }
+            if (!it->is_regular_file(ec)) {
+                ec.clear();
+                continue;
+            }
+            if (fs::equivalent(entry, it->path(), ec) && !ec)
+                return it->path();
+            ec.clear();
+
+            // Git preserves hard-linked files as two independent regular
+            // files. Content equality lets a macOS checkout recover the
+            // archive target and recreate its native symbolic link.
+            if (fs::file_size(it->path(), ec) != content.size() || ec) {
+                ec.clear();
+                continue;
+            }
+            std::ifstream candidate(it->path(), std::ios::binary);
+            if (!candidate)
+                continue;
+            std::string candidate_content((std::istreambuf_iterator<char>(candidate)),
+                                          std::istreambuf_iterator<char>());
+            if (candidate_content == content)
+                return it->path();
+        }
+    }
+
     return std::nullopt;
 }
 
@@ -164,9 +206,19 @@ TagManager::TagManager(const Config& cfg) : cfg(cfg) {
 
     if (!fs::exists(archive_root)) {
         fs::create_directories(archive_root);
-        std::ofstream gi(archive_root / ".gitignore");
-        gi << "# 归档内容副本，无需提交\n*\n!.gitignore\n";
     }
+    {
+        std::ofstream gi(archive_root / ".gitignore", std::ios::trunc);
+        gi << "# 1.0 portable hash archive: commit index.tsv and objects/\n"
+              "*\n!.gitignore\n!index.tsv\n!objects/\n!objects/**\n";
+    }
+
+    archive_store = std::make_unique<md_archive::ArchiveStore>(cfg.workspace, archive_root);
+
+    // A clone can materialize links differently on another operating system.
+    // Normalize them before every command without requiring a manual rebuild.
+    normalize_all_links(false);
+    restore_links_from_index();
 }
 
 std::string TagManager::safe_filename(const std::string& title) {
@@ -191,19 +243,12 @@ std::string TagManager::safe_filename(const std::string& title) {
 }
 
 std::optional<fs::path> TagManager::copy_to_archive(const fs::path& md_file) {
-    fs::path rel = fs::relative(md_file, cfg.workspace);
-    fs::path dest = archive_root / rel;
-
-    fs::create_directories(dest.parent_path());
-
-    std::error_code ec;
-    fs::copy_file(md_file, dest, fs::copy_options::overwrite_existing, ec);
-    if (ec) {
-        std::cerr << "  错误: 复制到归档失败: " << ec.message() << "\n";
+    auto record = archive_store->store(md_file);
+    if (!record) {
+        std::cerr << "  错误: 无法计算哈希或写入归档对象\n";
         return std::nullopt;
     }
-
-    return dest;
+    return record->object_path;
 }
 
 bool TagManager::create_tag_entry(const fs::path& archive_copy, const std::string& tag,
@@ -216,12 +261,20 @@ bool TagManager::create_tag_entry(const fs::path& archive_copy, const std::strin
     std::string safe_title = safe_filename(doc_title);
     fs::path link_path = tag_dir / from_utf8(safe_title + ".md");
 
-    if (fs::exists(link_path)) {
+    std::error_code status_error;
+    const bool link_path_present =
+        fs::symlink_status(link_path, status_error).type() != fs::file_type::not_found;
+    if (link_path_present) {
         fs::path canonical_new = normalize_path(archive_copy);
         std::error_code ec;
-        auto existing_target = tag_entry_target(link_path, tag_dir);
+        auto existing_target = tag_entry_target(link_path, tag_dir, archive_root);
         fs::path resolved_existing = existing_target ? normalize_path(*existing_target) : fs::path{};
         bool same_target = existing_target && resolved_existing == canonical_new;
+
+        if (existing_target && !fs::exists(*existing_target)) {
+            fs::remove(link_path, ec);
+            same_target = true;
+        }
 
         if (!same_target) {
             if (!force) {
@@ -240,10 +293,15 @@ bool TagManager::create_tag_entry(const fs::path& archive_copy, const std::strin
     std::error_code link_error;
     fs::create_symlink(rel, link_path, link_error);
     if (link_error) {
-        std::cerr << "  错误: 无法创建原生符号链接: " << to_utf8(link_path) << "\n"
-                  << "        " << link_error.message() << "\n"
-                  << "        Windows 请开启开发者模式并设置 git config core.symlinks true。\n";
-        return false;
+        std::error_code hard_link_error;
+        fs::create_hard_link(archive_copy, link_path, hard_link_error);
+        if (hard_link_error) {
+            std::cerr << "  错误: 无法创建符号链接或硬链接: " << to_utf8(link_path) << "\n"
+                      << "        符号链接: " << link_error.message() << "\n"
+                      << "        硬链接: " << hard_link_error.message() << "\n";
+            return false;
+        }
+        std::cout << "  提示: 符号链接不可用，已创建 Windows 兼容的硬链接\n";
     }
     return true;
 }
@@ -264,27 +322,32 @@ std::vector<TagManager::DocInfo> TagManager::collect_docs_for_tag(const std::str
         DocInfo info;
         info.title = to_utf8(entry.path().stem());
 
-        if (auto stored_target = tag_entry_target(entry.path(), tag_dir)) {
+        if (auto stored_target = tag_entry_target(entry.path(), tag_dir, archive_root)) {
             fs::path abs_target = *stored_target;
             std::error_code ec;
             abs_target = fs::canonical(abs_target, ec);
-            if (!ec) {
-                info.archive_rel_path = fs::relative(abs_target, cfg.workspace);
-                info.rel_path = info.archive_rel_path;
-            } else {
-                info.rel_path = fs::relative(*stored_target, cfg.workspace);
-                info.archive_rel_path = info.rel_path;
+            if (ec)
+                abs_target = normalize_path(*stored_target);
+
+            if (is_within_directory(abs_target, archive_root)) {
+                if (auto hash = archive_store->hash_for_object(abs_target)) {
+                    auto sources = archive_store->sources_for_hash(*hash);
+                    auto existing = std::ranges::find_if(
+                        sources, [](const fs::path& path) { return fs::exists(path); });
+                    if (existing != sources.end())
+                        abs_target = *existing;
+                } else {
+                    auto legacy_rel = abs_target.lexically_relative(archive_root);
+                    auto legacy_source = cfg.workspace / legacy_rel;
+                    if (fs::exists(legacy_source))
+                        abs_target = legacy_source;
+                }
             }
+            info.rel_path = fs::relative(abs_target, cfg.workspace);
+            info.archive_rel_path = fs::relative(*stored_target, cfg.workspace);
         } else {
             info.rel_path = fs::relative(entry.path(), cfg.workspace);
             info.archive_rel_path = info.rel_path;
-        }
-
-        std::string rel_str = generic_to_utf8(info.rel_path);
-        std::string archive_prefix = generic_to_utf8(cfg.archive_dir) + "/";
-        if (rel_str.starts_with(archive_prefix)) {
-            rel_str = rel_str.substr(archive_prefix.size());
-            info.rel_path = from_utf8(rel_str);
         }
 
         docs.push_back(info);
@@ -332,16 +395,20 @@ std::vector<std::string> TagManager::archive(const fs::path& md_file, bool force
     }
 
     fs::path rel = fs::relative(source, cfg.workspace);
-    fs::path archive_copy = archive_root / rel;
+    auto current_hash = md_archive::sha256_file(source);
+    if (!current_hash) {
+        std::cerr << "错误: 无法读取文件并计算 SHA-256\n";
+        return {};
+    }
+    auto known_hash = archive_store->hash_for_source(source);
 
-    if (fs::exists(archive_copy)) {
+    if (known_hash) {
         if (!force) {
             std::cout << "⚠️  警告: \"" << to_utf8(rel) << "\" 已在归档中，跳过（使用 --force 强制替换）\n";
             return {};
         }
         std::cout << "⚠️  强制替换已归档的: " << to_utf8(rel) << "\n";
 
-        fs::path canonical_archive = fs::canonical(archive_copy);
         std::set<std::string> affected_tags;
         if (fs::exists(tags_root)) {
             for (const auto& tag_entry : fs::directory_iterator(tags_root)) {
@@ -349,11 +416,22 @@ std::vector<std::string> TagManager::archive(const fs::path& md_file, bool force
                     continue;
                 fs::path tag_dir = tag_entry.path();
                 for (const auto& link_entry : fs::directory_iterator(tag_dir)) {
-                    if (!link_entry.is_symlink())
+                    if (!link_entry.is_symlink() && !link_entry.is_regular_file())
                         continue;
                     std::error_code ec;
-                    fs::path resolved = fs::canonical(link_entry.path(), ec);
-                    if (!ec && resolved == canonical_archive) {
+                    auto target = tag_entry_target(link_entry.path(), tag_dir, archive_root);
+                    fs::path resolved = target ? normalize_path(*target) : fs::path{};
+                    bool belongs_to_source = resolved == source ||
+                                             fs::equivalent(link_entry.path(), source, ec);
+                    ec.clear();
+                    if (!belongs_to_source && target) {
+                        if (auto target_hash = archive_store->hash_for_object(*target)) {
+                            auto aliases = archive_store->sources_for_hash(*target_hash);
+                            belongs_to_source = *target_hash == *known_hash && aliases.size() == 1 &&
+                                                normalize_path(aliases.front()) == source;
+                        }
+                    }
+                    if (belongs_to_source) {
                         fs::remove(link_entry.path(), ec);
                         affected_tags.insert(to_utf8(tag_dir.filename()));
                     }
@@ -383,11 +461,15 @@ std::vector<std::string> TagManager::archive(const fs::path& md_file, bool force
     if (!copied) {
         return {};
     }
-    archive_copy = *copied;
-    std::cout << "  已存档: " << to_utf8(rel) << "\n";
+    const fs::path archive_copy = *copied;
+    const auto aliases = archive_store->sources_for_hash(*current_hash);
+    std::cout << "  SHA-256: " << *current_hash << "\n";
+    std::cout << "  已存档对象: " << to_utf8(fs::relative(archive_copy, cfg.workspace)) << "\n";
+    if (aliases.size() > 1)
+        std::cout << "  内容重复: 共 " << aliases.size() << " 个源路径共享此备份\n";
 
     for (const auto& tag : meta.tags) {
-        create_tag_entry(archive_copy, tag, meta.title, force);
+        create_tag_entry(source, tag, meta.title, force);
     }
 
     for (const auto& tag : meta.tags) {
@@ -417,7 +499,14 @@ void TagManager::remove(const fs::path& md_file) {
         fs::path tag_dir = tags_root / from_utf8(tag);
         fs::path link_path = tag_dir / from_utf8(safe_title + ".md");
 
-        if (fs::exists(link_path)) {
+        std::error_code link_status_error;
+        if (fs::symlink_status(link_path, link_status_error).type() != fs::file_type::not_found) {
+            auto target = tag_entry_target(link_path, tag_dir, archive_root);
+            std::error_code equivalent_error;
+            bool points_to_source = (target && normalize_path(*target) == source) ||
+                                    fs::equivalent(link_path, source, equivalent_error);
+            if (!points_to_source)
+                continue;
             std::cout << "  移除: " << tag << " / " << safe_title << ".md\n";
             std::error_code ec;
             fs::remove(link_path, ec);
@@ -431,25 +520,10 @@ void TagManager::remove(const fs::path& md_file) {
         }
     }
 
+    if (archive_store->remove_source(source)) {
+        std::cout << "  已更新哈希归档索引；无引用的内容对象已清理\n";
+    }
     if (removed_any) {
-        fs::path rel = fs::relative(source, cfg.workspace);
-        std::string rel_str = generic_to_utf8(rel);
-        std::string archive_prefix = generic_to_utf8(cfg.archive_dir) + "/";
-        if (rel_str.starts_with(archive_prefix)) {
-            rel_str = rel_str.substr(archive_prefix.size());
-            rel = from_utf8(rel_str);
-        }
-        fs::path archive_copy = archive_root / rel;
-        std::error_code ec;
-        if (fs::exists(archive_copy)) {
-            fs::remove(archive_copy, ec);
-            std::cout << "  已删除存档副本: " << to_utf8(cfg.archive_dir / rel) << "\n";
-
-            auto parent = archive_copy.parent_path();
-            if (parent != archive_root && fs::exists(parent) && fs::is_empty(parent)) {
-                fs::remove(parent, ec);
-            }
-        }
         std::cout << "已从归档中移除: " << to_utf8(source.filename()) << "\n";
     }
 }
@@ -488,7 +562,7 @@ int TagManager::scan_all(bool force) {
     return count;
 }
 
-void TagManager::rebuild_all_links() {
+void TagManager::normalize_all_links(bool verbose) {
     std::set<std::string> tags;
     struct PendingEntry {
         fs::path archive_copy;
@@ -507,13 +581,32 @@ void TagManager::rebuild_all_links() {
                         continue;
                     if (tag_entry.path().extension() != ".md")
                         continue;
-                    if (tag_entry.is_symlink())
-                        continue;
-                    if (auto target = tag_entry_target(tag_entry.path(), entry.path())) {
-                        if (fs::exists(*target)) {
-                            pending_entries.push_back(
-                                {*target, tag, to_utf8(tag_entry.path().stem())});
+                    if (auto target = tag_entry_target(tag_entry.path(), entry.path(), archive_root)) {
+                        fs::path desired = *target;
+                        if (is_within_directory(normalize_path(desired), archive_root)) {
+                            if (auto hash = archive_store->hash_for_object(desired)) {
+                                auto sources = archive_store->sources_for_hash(*hash);
+                                auto existing = std::ranges::find_if(
+                                    sources, [](const fs::path& path) { return fs::exists(path); });
+                                if (existing != sources.end())
+                                    desired = *existing;
+                            } else {
+                                auto legacy_rel = desired.lexically_relative(archive_root);
+                                auto legacy_source = cfg.workspace / legacy_rel;
+                                if (fs::exists(legacy_source))
+                                    desired = legacy_source;
+                            }
                         }
+                        if (!fs::exists(desired))
+                            continue;
+                        std::error_code equivalent_error;
+                        if (fs::equivalent(tag_entry.path(), desired, equivalent_error) &&
+                            !equivalent_error)
+                            continue;
+                        if (tag_entry.is_symlink() && normalize_path(*target) == normalize_path(desired))
+                            continue;
+                        pending_entries.push_back(
+                            {desired, tag, to_utf8(tag_entry.path().stem())});
                     }
                 }
             }
@@ -524,10 +617,36 @@ void TagManager::rebuild_all_links() {
         create_tag_entry(pending.archive_copy, pending.tag, pending.title, true);
 
     for (const auto& tag : tags) {
-        std::cout << "  整理标签: " << tag << "\n";
+        if (verbose)
+            std::cout << "  整理标签: " << tag << "\n";
         remove_legacy_tag_index(tag);
     }
-    std::cout << "已整理 " << tags.size() << " 个标签目录\n";
+    if (verbose)
+        std::cout << "已整理 " << tags.size() << " 个标签目录\n";
+}
+
+void TagManager::rebuild_all_links() {
+    normalize_all_links(true);
+    restore_links_from_index();
+}
+
+void TagManager::restore_links_from_index() {
+    for (const auto& [source_key, hash] : archive_store->entries()) {
+        static_cast<void>(hash);
+        const fs::path source = cfg.workspace / from_utf8(source_key);
+        if (!fs::exists(source) || source.extension() != ".md")
+            continue;
+        const auto meta = parse_frontmatter(source);
+        if (!meta.has_frontmatter || !meta.closed_frontmatter || !meta.has_title || meta.tags.empty())
+            continue;
+        for (const auto& tag : meta.tags) {
+            const fs::path link_path = tags_root / from_utf8(tag) /
+                                       from_utf8(safe_filename(meta.title) + ".md");
+            std::error_code ec;
+            if (fs::symlink_status(link_path, ec).type() == fs::file_type::not_found)
+                create_tag_entry(source, tag, meta.title, false);
+        }
+    }
 }
 
 std::vector<std::string> TagManager::list_tags() const {

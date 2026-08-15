@@ -41,7 +41,7 @@ if(NOT DEFINED CMAKE_CXX_STDLIB_MODULES_JSON)
 endif()
 
 project(md-archive
-    VERSION 0.2.0
+    VERSION 1.0.2
     DESCRIPTION "Markdown archive and tag navigation CLI"
     LANGUAGES CXX)
 
@@ -72,6 +72,8 @@ target_sources(md_archive_core
         BASE_DIRS ${PROJECT_SOURCE_DIR}/src
         FILES
             src/path_encoding.cppm
+            src/content_hash.cppm
+            src/archive_store.cppm
             src/config.cppm
             src/frontmatter.cppm
             src/tag_manager.cppm

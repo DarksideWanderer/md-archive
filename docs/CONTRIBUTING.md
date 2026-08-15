@@ -52,6 +52,8 @@ API 注释可以比用户文档更短，但导出 API 应能通过生成的 Doxy
 
 ## Generated Files / 生成文件
 
-Do not commit `.archive/`, `.tags/`, local `config.ini`, `build/`, or compiled binaries.
+Commit `.archive/index.tsv` and `.archive/objects/` when updating an archive
+workspace. Do not commit `.tags/`, local `config.ini`, `build/`, or compiled binaries.
 
-不要提交 `.archive/`、`.tags/`、本地 `config.ini`、`build/` 或编译产物。
+更新归档工作区时应提交 `.archive/index.tsv` 和 `.archive/objects/`；不要提交
+`.tags/`、本地 `config.ini`、`build/` 或编译产物。
