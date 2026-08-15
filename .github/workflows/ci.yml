@@ -110,9 +110,25 @@ jobs:
       - name: Configure, build, and test
         shell: msys2 {0}
         run: |
+          CXX_POSIX="$(command -v clang++.exe)"
+          LIBCXX_POSIX="$(find /clang64/lib -name libc++.modules.json -print -quit)"
+          if [[ -z "$CXX_POSIX" || ! -x "$CXX_POSIX" ]]; then
+            echo "clang++.exe was not found in the CLANG64 environment" >&2
+            exit 1
+          fi
+          if [[ -z "$LIBCXX_POSIX" || ! -f "$LIBCXX_POSIX" ]]; then
+            echo "libc++.modules.json was not found in the CLANG64 environment" >&2
+            exit 1
+          fi
+          CXX_COMPILER="$(cygpath -m "$CXX_POSIX")"
+          LIBCXX_MODULES_JSON="$(cygpath -m "$LIBCXX_POSIX")"
+          echo "Compiler: $CXX_COMPILER"
+          echo "libc++ modules: $LIBCXX_MODULES_JSON"
+          "$CXX_POSIX" --version
+
           cmake -S . -B build -G Ninja \
-            -DCMAKE_CXX_COMPILER=/clang64/bin/clang++ \
-            -DCMAKE_CXX_STDLIB_MODULES_JSON=/clang64/lib/libc++.modules.json \
+            -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+            -DCMAKE_CXX_STDLIB_MODULES_JSON="$LIBCXX_MODULES_JSON" \
             -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
           cmake --build build
           ctest --test-dir build --output-on-failure
