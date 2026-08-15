@@ -1,8 +1,45 @@
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 import std;
+import md_archive.path_encoding;
 import md_archive.config;
 import md_archive.tag_manager;
 
 namespace fs = std::filesystem;
+
+using md_archive::path_encoding::from_utf8;
+using md_archive::path_encoding::to_utf8;
+
+#ifdef _WIN32
+std::string wide_to_utf8(std::wstring_view value) {
+    if (value.empty())
+        return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                                         nullptr, 0, nullptr, nullptr);
+    if (size <= 0)
+        throw std::runtime_error("无法将 Windows 命令行转换为 UTF-8");
+    std::string result(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), size,
+                        nullptr, nullptr);
+    return result;
+}
+
+std::vector<std::string> windows_utf8_args() {
+    int count = 0;
+    LPWSTR* values = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (!values)
+        throw std::runtime_error("无法读取 Windows 命令行");
+    std::vector<std::string> result;
+    result.reserve(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i)
+        result.push_back(wide_to_utf8(values[i]));
+    LocalFree(values);
+    return result;
+}
+#endif
 
 namespace {
 
@@ -40,7 +77,7 @@ void print_usage(const char* prog) {
     std::cout << "  list [tag]                 列出所有标签，或列出某标签下的文档\n";
     std::cout << "  docs                       列出所有已归档文档\n";
     std::cout << "  remove <file.md>           从归档中移除文件\n";
-    std::cout << "  rebuild                    重建所有标签索引文件\n";
+    std::cout << "  rebuild                    整理标签符号链接并清理旧索引\n";
 }
 
 std::optional<ParsedArgs> parse_args(int argc, char* argv[]) {
@@ -52,13 +89,13 @@ std::optional<ParsedArgs> parse_args(int argc, char* argv[]) {
                 std::cerr << "参数错误: --config 需要路径\n";
                 return std::nullopt;
             }
-            parsed.config_options.config_path = argv[++i];
+            parsed.config_options.config_path = from_utf8(argv[++i]);
         } else if (arg == "--workspace") {
             if (i + 1 >= argc) {
                 std::cerr << "参数错误: --workspace 需要路径\n";
                 return std::nullopt;
             }
-            parsed.config_options.workspace_override = argv[++i];
+            parsed.config_options.workspace_override = from_utf8(argv[++i]);
         } else {
             parsed.command_args.push_back(arg);
         }
@@ -95,7 +132,7 @@ std::optional<fs::path> parse_file_arg(const std::vector<std::string>& args) {
             continue;
         }
         if (!arg.starts_with("-")) {
-            return fs::absolute(arg);
+            return fs::absolute(from_utf8(arg));
         }
     }
     return std::nullopt;
@@ -104,6 +141,15 @@ std::optional<fs::path> parse_file_arg(const std::vector<std::string>& args) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    auto utf8_args = windows_utf8_args();
+    std::vector<char*> utf8_argv;
+    utf8_argv.reserve(utf8_args.size());
+    for (auto& arg : utf8_args)
+        utf8_argv.push_back(arg.data());
+    argc = static_cast<int>(utf8_argv.size());
+    argv = utf8_argv.data();
+#endif
     auto parsed = parse_args(argc, argv);
     if (!parsed) {
         print_usage(argv[0]);
@@ -142,7 +188,7 @@ int main(int argc, char* argv[]) {
         }
         if (args[1] == "path") {
             if (cfg->config_path) {
-                std::cout << cfg->config_path->string() << "\n";
+                std::cout << to_utf8(*cfg->config_path) << "\n";
             } else {
                 std::cout << "(no config.ini found; using built-in defaults)\n";
             }
@@ -178,7 +224,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "用法: " << argv[0] << " remove <file.md>\n";
             return exit_invalid_arguments;
         }
-        tm.remove(fs::absolute(args[1]));
+        tm.remove(fs::absolute(from_utf8(args[1])));
         return exit_success;
     }
 
@@ -197,11 +243,12 @@ int main(int argc, char* argv[]) {
                 std::cout << "  (无文档)\n";
             } else {
                 for (std::size_t i = 0; i < docs.size(); ++i) {
-                    std::cout << "  " << (i + 1) << ". " << docs[i].filename().string() << " -> "
-                              << docs[i].string() << "\n";
+                    std::cout << "  " << (i + 1) << ". " << to_utf8(docs[i].filename()) << " -> "
+                              << to_utf8(docs[i]) << "\n";
                 }
                 std::cout << "\n共 " << docs.size() << " 篇\n";
-                std::cout << "查看索引: " << (cfg->workspace / cfg->tags_dir / (tag + ".md")).string()
+                std::cout << "查看索引: "
+                          << to_utf8(cfg->workspace / cfg->tags_dir / from_utf8(tag + ".md"))
                           << "\n";
             }
         } else {
@@ -215,7 +262,7 @@ int main(int argc, char* argv[]) {
                     std::cout << "  " << (i + 1) << ". " << tags[i] << " (" << docs.size() << " 篇)\n";
                 }
                 std::cout << "\n共 " << tags.size() << " 个标签\n";
-                std::cout << "标签索引目录: " << (cfg->workspace / cfg->tags_dir) << "\n";
+                std::cout << "标签目录: " << to_utf8(cfg->workspace / cfg->tags_dir) << "\n";
             }
         }
         return exit_success;
@@ -229,7 +276,7 @@ int main(int argc, char* argv[]) {
         } else {
             for (std::size_t i = 0; i < docs.size(); ++i) {
                 auto rel = fs::relative(docs[i], cfg->workspace);
-                std::cout << "  " << (i + 1) << ". " << rel.string() << "\n";
+                std::cout << "  " << (i + 1) << ". " << to_utf8(rel) << "\n";
             }
             std::cout << "\n共 " << docs.size() << " 篇\n";
         }
@@ -237,7 +284,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (cmd == "rebuild") {
-        tm.rebuild_all_indexes();
+        tm.rebuild_all_links();
         return exit_success;
     }
 
