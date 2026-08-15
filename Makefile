@@ -4,10 +4,17 @@ BUILD_DIR ?= build
 CMAKE_BUILD_TYPE ?= Release
 
 HOMEBREW_CLANG := $(firstword $(wildcard /opt/homebrew/opt/llvm/bin/clang++ /usr/local/opt/llvm/bin/clang++))
+MSYS2_CLANG := $(firstword $(wildcard /clang64/bin/clang++.exe))
+
+ifneq ($(MSYS2_CLANG),)
+export PATH := /clang64/bin:$(PATH)
+endif
 
 ifeq ($(origin CXX), default)
 ifneq ($(HOMEBREW_CLANG),)
 CXX := $(HOMEBREW_CLANG)
+else ifneq ($(MSYS2_CLANG),)
+CXX := $(MSYS2_CLANG)
 else
 CXX := clang++
 endif

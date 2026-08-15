@@ -219,10 +219,12 @@ ctest --test-dir build --output-on-failure
 
 Starting with 0.2.0, every released code state is retained by an annotated Git
 tag. `v0.2.0` is the preserved pre-hash-storage baseline; 1.0 introduces the
-hash-addressed archive format and automatic legacy migration.
+hash-addressed archive format and automatic legacy migration. `v1.0.1` fixes
+automatic Clang discovery and installation from an MSYS2 shell.
 
 从 0.2.0 开始，每个发布版本都使用带说明的 Git 标签保留完整代码状态。
 `v0.2.0` 是引入哈希存储前的基线；1.0 引入哈希寻址归档格式和旧版自动迁移。
+`v1.0.1` 修复从 MSYS2 shell 构建安装时的 Clang 自动发现。
 
 The main code is built through `.cppm` module interfaces and `import std;`. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for toolchain notes.
 
