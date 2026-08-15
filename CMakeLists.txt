@@ -1,7 +1,13 @@
 cmake_minimum_required(VERSION 4.3)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD 451f2fe2-a8a2-47c3-bc32-94786d8fc91b)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4")
+    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
+        "f35a9ac6-8463-4d38-8eec-5d6008153e7d")
+else()
+    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
+        "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
+endif()
 
 if(NOT DEFINED CMAKE_CXX_STDLIB_MODULES_JSON)
     set(_md_archive_compiler_hint "${CMAKE_CXX_COMPILER}")
@@ -35,7 +41,7 @@ if(NOT DEFINED CMAKE_CXX_STDLIB_MODULES_JSON)
 endif()
 
 project(md-archive
-    VERSION 0.2.0
+    VERSION 1.0.2
     DESCRIPTION "Markdown archive and tag navigation CLI"
     LANGUAGES CXX)
 
@@ -65,6 +71,9 @@ target_sources(md_archive_core
         FILE_SET CXX_MODULES
         BASE_DIRS ${PROJECT_SOURCE_DIR}/src
         FILES
+            src/path_encoding.cppm
+            src/content_hash.cppm
+            src/archive_store.cppm
             src/config.cppm
             src/frontmatter.cppm
             src/tag_manager.cppm
@@ -85,6 +94,9 @@ endif()
 
 add_executable(md-archive src/main.cpp)
 target_link_libraries(md-archive PRIVATE md_archive_core)
+if(WIN32)
+    target_link_libraries(md-archive PRIVATE shell32)
+endif()
 target_compile_features(md-archive PRIVATE cxx_std_23)
 target_compile_definitions(md-archive PRIVATE MD_ARCHIVE_VERSION="${PROJECT_VERSION}")
 set_target_properties(md-archive PROPERTIES

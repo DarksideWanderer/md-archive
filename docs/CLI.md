@@ -41,9 +41,9 @@ md-archive rebuild
 
 `config path`：显示配置文件路径；若使用内置默认值，则说明未找到配置文件。
 
-`add <file.md> [--force]`: parse frontmatter, copy the source into `.archive/`, create tag symlinks, and update tag indexes.
+`add <file.md> [--force]`: parse frontmatter, store a SHA-256-addressed backup object, update the source/hash table, and create tag links to the source file.
 
-`add <file.md> [--force]`：解析 frontmatter，复制源文件到 `.archive/`，创建标签符号链接，并更新标签索引。
+`add <file.md> [--force]`：解析 frontmatter，保存 SHA-256 内容对象、更新源路径哈希表，并创建指向源文件的标签链接。
 
 `scan [--force]`: archive Markdown files under workspace. It skips `.archive/` and `.tags/`.
 
@@ -57,13 +57,13 @@ md-archive rebuild
 
 `docs`：列出已归档文档。
 
-`remove <file.md>`: remove tag links and the archive copy for a source file.
+`remove <file.md>`: remove its tag links and source mapping; delete the content object only when no other source path references it.
 
-`remove <file.md>`：移除某源文件对应的标签链接和归档副本。
+`remove <file.md>`：移除对应标签链接和源路径映射；仅在没有其他源路径引用时删除内容对象。
 
-`rebuild`: rebuild tag index Markdown files from tag directories.
+`rebuild`: normalize cross-platform tag links and migrate legacy archive links.
 
-`rebuild`：根据标签目录重建标签索引 Markdown 文件。
+`rebuild`：整理跨平台标签链接并迁移旧版归档链接。
 
 ## Frontmatter / Frontmatter 要求
 
@@ -94,9 +94,27 @@ Search order / 查找顺序：
 
 ## Archive Semantics / 归档语义
 
-`.archive/` stores durable content copies. `.tags/<tag>/` contains symlinks pointing to `.archive/` copies. `.tags/<tag>.md` index files link back to source files for editing.
+`.archive/objects/<prefix>/<sha256>.md` stores one durable object per unique
+file content. `.archive/index.tsv` is the source-path-to-hash table. Multiple
+existing paths with one hash are copies; a missing old path replaced by a new
+path with the same hash is reconciled as a move. `.tags/<tag>/` links point to
+the original source files.
 
-`.archive/` 保存持久内容副本。`.tags/<tag>/` 中的符号链接指向 `.archive/` 副本。`.tags/<tag>.md` 索引文件链接回源文件，方便编辑。
+`.archive/objects/<前缀>/<sha256>.md` 按内容保存唯一持久对象，
+`.archive/index.tsv` 是源路径到哈希的映射表。同一哈希下仍存在的多个路径表示复制；
+旧路径消失而相同哈希出现在新路径时会按移动处理。`.tags/<tag>/` 链接直接指向原始源文件。
+
+When Windows cannot create symbolic links, tag entries use hard links instead.
+Commit `.archive/index.tsv` and `.archive/objects/`, while keeping `.tags/`
+ignored. After a cross-platform clone, every operational command silently
+recreates missing tag links from the portable hash index before doing its work.
+Legacy checked-out link representations are also normalized. `rebuild`
+performs the same pass explicitly.
+
+Windows 无法创建符号链接时，标签条目会自动使用硬链接。跨平台 clone 后，
+应提交 `.archive/index.tsv` 和 `.archive/objects/`，并保持 `.tags/` 被忽略。
+每个业务命令都会先根据可移植哈希索引静默重建缺失链接，同时兼容旧版跨端链接
+表示；`rebuild` 可显式执行同一过程。
 
 ## Exit Codes / 退出码
 

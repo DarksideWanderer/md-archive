@@ -5,6 +5,5 @@ compile_commands.json
 docs/api/
 obj/
 md-archive
-.archive/
 .tags/
 config.ini
