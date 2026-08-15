@@ -142,7 +142,7 @@ std::optional<fs::path> parse_file_arg(const std::vector<std::string>& args) {
 
 } // namespace
 
-int main(int argc, char* argv[]) {
+int run_main(int argc, char* argv[]) {
 #ifdef _WIN32
     auto utf8_args = windows_utf8_args();
     std::vector<char*> utf8_argv;
@@ -239,19 +239,18 @@ int main(int argc, char* argv[]) {
     if (cmd == "list") {
         if (args.size() >= 2) {
             std::string tag = args[1];
-            auto docs = tm.list_docs_for_tag(tag);
+            auto docs = tm.list_doc_entries_for_tag(tag);
             std::cout << "标签 [" << tag << "] 下的文档:\n";
             if (docs.empty()) {
                 std::cout << "  (无文档)\n";
             } else {
                 for (std::size_t i = 0; i < docs.size(); ++i) {
-                    std::cout << "  " << (i + 1) << ". " << to_utf8(docs[i].filename()) << " -> "
-                              << to_utf8(docs[i]) << "\n";
+                    std::cout << "  " << (i + 1) << ". " << docs[i].title << " -> "
+                              << to_utf8(docs[i].path) << "\n";
                 }
                 std::cout << "\n共 " << docs.size() << " 篇\n";
-                std::cout << "查看索引: "
-                          << to_utf8(cfg->workspace / cfg->tags_dir / from_utf8(tag + ".md"))
-                          << "\n";
+                std::cout << "标签目录: "
+                          << to_utf8(cfg->workspace / cfg->tags_dir / from_utf8(tag)) << "\n";
             }
         } else {
             auto tags = tm.list_tags();
@@ -293,4 +292,16 @@ int main(int argc, char* argv[]) {
     std::cerr << "未知命令: " << cmd << "\n";
     print_usage(argv[0]);
     return exit_invalid_arguments;
+}
+
+int main(int argc, char* argv[]) {
+    try {
+        return run_main(argc, argv);
+    } catch (const std::filesystem::filesystem_error& error) {
+        std::cerr << "文件系统错误: " << error.what() << "\n";
+        return exit_filesystem_error;
+    } catch (const std::exception& error) {
+        std::cerr << "错误: " << error.what() << "\n";
+        return exit_filesystem_error;
+    }
 }

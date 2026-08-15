@@ -136,8 +136,8 @@ if(NOT retained_object_count EQUAL 1 OR
     message(FATAL_ERROR "removing one alias damaged the shared object or canonical tag link")
 endif()
 
-# A moved file keeps the same object, drops its missing old path, and retargets
-# its tag link to the new source path.
+# A moved file keeps the same object and adds the new path without silently
+# deleting the missing historical path.
 file(WRITE "${workspace}/notes/movable.md"
 "---\n"
 "tags: [移动测试]\n"
@@ -162,8 +162,8 @@ if(NOT moved_add_result EQUAL 0)
     message(FATAL_ERROR "moved file add failed\nstdout:\n${moved_add_output}\nstderr:\n${moved_add_error}")
 endif()
 file(READ "${workspace}/.archive/index.tsv" moved_index)
-if(moved_index MATCHES "notes/movable.md" OR NOT moved_index MATCHES "notes/moved.md")
-    message(FATAL_ERROR "move was not reconciled in hash index")
+if(NOT moved_index MATCHES "notes/movable.md" OR NOT moved_index MATCHES "notes/moved.md")
+    message(FATAL_ERROR "hash index did not retain all historical source paths")
 endif()
 file(READ "${workspace}/.tags/移动测试/可移动文档.md" moved_link_content)
 if(NOT moved_link_content MATCHES "# Move me")
@@ -193,8 +193,9 @@ if(NOT changed_link_content MATCHES "# Changed with force")
 endif()
 file(GLOB_RECURSE changed_objects "${workspace}/.archive/objects/*.md")
 list(LENGTH changed_objects changed_object_count)
-if(NOT changed_object_count EQUAL 2)
-    message(FATAL_ERROR "forced update left an unreferenced archive object: ${changed_object_count}")
+if(NOT changed_object_count EQUAL 3)
+    message(FATAL_ERROR
+        "forced update did not preserve the old object referenced by the historical source path: ${changed_object_count}")
 endif()
 
 # A pre-1.0 path-mirrored archive is migrated on the next invocation.

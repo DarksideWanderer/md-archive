@@ -176,6 +176,11 @@ std::string parse_value(const std::string& line) {
     return value;
 }
 
+std::string parse_key(const std::string& line) {
+    const auto eq = line.find('=');
+    return eq == std::string::npos ? trim(line) : trim(line.substr(0, eq));
+}
+
 bool path_has_parent_escape(const fs::path& p) {
     for (const auto& part : p) {
         if (part == "..") {
@@ -278,12 +283,13 @@ std::optional<Config> Config::load(const fs::path& requested_config_path,
             continue;
         }
 
-        if (line.starts_with("workspace")) {
+        const auto key = parse_key(line);
+        if (key == "workspace") {
             cfg.workspace = from_utf8(parse_value(line));
             has_workspace = true;
-        } else if (line.starts_with("tags_dir")) {
+        } else if (key == "tags_dir") {
             cfg.tags_dir = from_utf8(parse_value(line));
-        } else if (line.starts_with("archive_dir")) {
+        } else if (key == "archive_dir") {
             cfg.archive_dir = from_utf8(parse_value(line));
         }
     }
@@ -299,7 +305,7 @@ std::optional<Config> Config::load(const fs::path& requested_config_path,
 
     auto canonical_workspace = canonical_existing_directory(cfg.workspace, "workspace");
     if (!canonical_workspace) {
-        std::cerr << "提示: 已读取配置文件: " << to_utf8(actual_config_path) << "\n"
+        std::cerr << "提示: 已读取配置文件 (config file loaded): " << to_utf8(actual_config_path) << "\n"
                   << "请修改 [archive] 中的 workspace，或本次使用 `--workspace .` 覆盖。\n";
         return std::nullopt;
     }

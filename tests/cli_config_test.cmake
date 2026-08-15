@@ -31,7 +31,7 @@ execute_process(
 if(invalid_result EQUAL 0)
     message(FATAL_ERROR "invalid workspace unexpectedly succeeded")
 endif()
-if(NOT invalid_error MATCHES "已读取配置文件")
+if(NOT invalid_error MATCHES "config file loaded")
     message(FATAL_ERROR "error must say that config.ini was read\nstderr:\n${invalid_error}")
 endif()
 if(invalid_error MATCHES "md-archive init")
