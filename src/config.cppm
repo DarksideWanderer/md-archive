@@ -1,6 +1,7 @@
 export module md_archive.config;
 
 import std;
+import md_archive.path_encoding;
 
 /**
  * @brief Global configuration overrides parsed before command dispatch.
@@ -129,6 +130,8 @@ export struct Config {
 };
 
 namespace fs = std::filesystem;
+using md_archive::path_encoding::from_utf8;
+using md_archive::path_encoding::to_utf8;
 
 namespace {
 
@@ -186,16 +189,16 @@ std::optional<fs::path> canonical_existing_directory(const fs::path& path, const
     std::error_code ec;
     auto absolute = fs::absolute(path, ec);
     if (ec) {
-        std::cerr << "配置错误: 无法解析 " << label << ": " << path << " (" << ec.message() << ")\n";
+        std::cerr << "配置错误: 无法解析 " << label << ": " << to_utf8(path) << " (" << ec.message() << ")\n";
         return std::nullopt;
     }
     auto canonical = fs::weakly_canonical(absolute, ec);
     if (ec) {
-        std::cerr << "配置错误: 无法规范化 " << label << ": " << absolute << " (" << ec.message() << ")\n";
+        std::cerr << "配置错误: 无法规范化 " << label << ": " << to_utf8(absolute) << " (" << ec.message() << ")\n";
         return std::nullopt;
     }
     if (!fs::exists(canonical) || !fs::is_directory(canonical)) {
-        std::cerr << "配置错误: " << label << " 不存在或不是目录: " << canonical << "\n";
+        std::cerr << "配置错误: " << label << " 不存在或不是目录: " << to_utf8(canonical) << "\n";
         return std::nullopt;
     }
     return canonical;
@@ -208,7 +211,7 @@ bool validate_relative_dir(const fs::path& value, const char* key) {
     }
     if (value.is_absolute() || path_has_parent_escape(value)) {
         std::cerr << "配置错误: " << key
-                  << " 必须是 workspace 内的相对路径，不能使用绝对路径或 '..': " << value << "\n";
+                  << " 必须是 workspace 内的相对路径，不能使用绝对路径或 '..': " << to_utf8(value) << "\n";
         return false;
     }
     return true;
@@ -217,7 +220,7 @@ bool validate_relative_dir(const fs::path& value, const char* key) {
 void write_example_config(std::ostream& out, const fs::path& workspace) {
     out << "[archive]\n";
     out << "# Workspace root for your Markdown notes / Markdown 工作区根目录\n";
-    out << "workspace = " << workspace.string() << "\n";
+    out << "workspace = " << to_utf8(workspace) << "\n";
     out << "# Tag navigation directory, relative to workspace / 标签导航目录，相对 workspace\n";
     out << "tags_dir = .tags\n";
     out << "# Durable archive copy directory, relative to workspace / 内容存档目录，相对 workspace\n";
@@ -239,13 +242,13 @@ std::optional<Config> Config::load(const fs::path& requested_config_path,
     std::error_code ec;
     fs::path actual_config_path = fs::weakly_canonical(requested_config_path, ec);
     if (ec || !fs::exists(actual_config_path)) {
-        std::cerr << "配置错误: 找不到配置文件 " << requested_config_path << "\n";
+        std::cerr << "配置错误: 找不到配置文件 " << to_utf8(requested_config_path) << "\n";
         return std::nullopt;
     }
 
     std::ifstream in(actual_config_path);
     if (!in.is_open()) {
-        std::cerr << "配置错误: 无法读取配置文件 " << actual_config_path << "\n";
+        std::cerr << "配置错误: 无法读取配置文件 " << to_utf8(actual_config_path) << "\n";
         return std::nullopt;
     }
 
@@ -273,12 +276,12 @@ std::optional<Config> Config::load(const fs::path& requested_config_path,
         }
 
         if (line.starts_with("workspace")) {
-            cfg.workspace = parse_value(line);
+            cfg.workspace = from_utf8(parse_value(line));
             has_workspace = true;
         } else if (line.starts_with("tags_dir")) {
-            cfg.tags_dir = parse_value(line);
+            cfg.tags_dir = from_utf8(parse_value(line));
         } else if (line.starts_with("archive_dir")) {
-            cfg.archive_dir = parse_value(line);
+            cfg.archive_dir = from_utf8(parse_value(line));
         }
     }
 
@@ -386,34 +389,34 @@ bool Config::init_config(const fs::path& directory, bool force) {
     }
 
     if (!fs::exists(dir)) {
-        std::cerr << "错误: 目录不存在: " << dir << "\n";
+        std::cerr << "错误: 目录不存在: " << to_utf8(dir) << "\n";
         return false;
     }
     fs::path path = dir / "config.ini";
     if (fs::exists(path) && !force) {
-        std::cerr << "错误: config.ini 已存在: " << path << " (使用 --force 覆盖)\n";
+        std::cerr << "错误: config.ini 已存在: " << to_utf8(path) << " (使用 --force 覆盖)\n";
         return false;
     }
 
     std::ofstream out(path);
     if (!out.is_open()) {
-        std::cerr << "错误: 无法写入配置文件: " << path << "\n";
+        std::cerr << "错误: 无法写入配置文件: " << to_utf8(path) << "\n";
         return false;
     }
     write_example_config(out, dir);
-    std::cout << "已生成配置文件: " << path << "\n";
+    std::cout << "已生成配置文件: " << to_utf8(path) << "\n";
     return true;
 }
 
 void Config::print_effective(const Config& cfg) {
     std::cout << "config_file = ";
     if (cfg.config_path) {
-        std::cout << cfg.config_path->string();
+        std::cout << to_utf8(*cfg.config_path);
     } else {
         std::cout << "(not found; using built-in defaults)";
     }
     std::cout << "\n";
-    std::cout << "workspace = " << cfg.workspace.string() << "\n";
-    std::cout << "tags_dir = " << cfg.tags_dir.string() << "\n";
-    std::cout << "archive_dir = " << cfg.archive_dir.string() << "\n";
+    std::cout << "workspace = " << to_utf8(cfg.workspace) << "\n";
+    std::cout << "tags_dir = " << to_utf8(cfg.tags_dir) << "\n";
+    std::cout << "archive_dir = " << to_utf8(cfg.archive_dir) << "\n";
 }

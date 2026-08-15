@@ -71,6 +71,7 @@ target_sources(md_archive_core
         FILE_SET CXX_MODULES
         BASE_DIRS ${PROJECT_SOURCE_DIR}/src
         FILES
+            src/path_encoding.cppm
             src/config.cppm
             src/frontmatter.cppm
             src/tag_manager.cppm
@@ -91,6 +92,9 @@ endif()
 
 add_executable(md-archive src/main.cpp)
 target_link_libraries(md-archive PRIVATE md_archive_core)
+if(WIN32)
+    target_link_libraries(md-archive PRIVATE shell32)
+endif()
 target_compile_features(md-archive PRIVATE cxx_std_23)
 target_compile_definitions(md-archive PRIVATE MD_ARCHIVE_VERSION="${PROJECT_VERSION}")
 set_target_properties(md-archive PROPERTIES
