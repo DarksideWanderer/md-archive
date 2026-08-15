@@ -77,6 +77,8 @@ std::optional<std::string> sha256_file(const std::filesystem::path& path) {
             used = 0;
         }
     }
+    if (!input.eof())
+        return std::nullopt;
     block[used++] = 0x80;
     if (used > 56) {
         std::fill(block.begin() + static_cast<std::ptrdiff_t>(used), block.end(), 0);

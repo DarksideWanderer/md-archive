@@ -61,9 +61,48 @@ md-archive rebuild
 
 `remove <file.md>`：移除对应标签链接和源路径映射；仅在没有其他源路径引用时删除内容对象。
 
-`rebuild`: normalize cross-platform tag links and migrate legacy archive links.
+`rebuild`: reconstruct directory-based document entries, normalize
+cross-platform link representations, and migrate legacy archive links. It uses
+the source when present and the durable hash object when the source was deleted.
 
-`rebuild`：整理跨平台标签链接并迁移旧版归档链接。
+`rebuild`：重建目录式文档入口、整理跨平台链接表示，并迁移旧版归档链接。
+源文件存在时使用源文件；源文件已删除时使用持久哈希对象。
+
+### Rebuild guarantees / Rebuild 保证
+
+- `.archive/index.tsv` and `.archive/objects/` are the durable source of truth.
+- `.tags/<tag>/<title>.md` is the only tag view. Root overview files are not generated.
+- Deleting a source file directly does not delete its archive record. `rebuild`
+  recovers the directory entry from the indexed object and links it to that object.
+- Only `remove` deletes a source mapping and may prune an unreferenced object.
+- `rebuild` does not re-hash sources, change mappings, or delete archive objects.
+- `list` and `docs` display the first indexed source path for a hash, never the
+  internal `.archive/objects/<hash>.md` path.
+
+- `.archive/index.tsv` 和 `.archive/objects/` 是持久事实来源。
+- `.tags/<标签>/<标题>.md` 是唯一标签视图；不生成根级概览文件。
+- 直接删除源文件不会删除归档记录；`rebuild` 会从索引对象恢复目录入口并链接到该对象。
+- 只有 `remove` 会删除源路径映射，并可能清理不再被引用的对象。
+- `rebuild` 不会重新计算源文件 hash、改变映射或删除归档对象。
+- `list` 和 `docs` 对同一 hash 显示索引中的第一条源路径，绝不显示内部
+  `.archive/objects/<hash>.md` 路径。
+
+`整理标签` means a link representation was repaired. It
+does not mean that archived Markdown content was forcibly overwritten.
+
+`整理标签` 表示链接形式得到修复，不表示归档 Markdown 正文被强制覆盖。
+
+### Same-filename limitation / 同名文件限制
+
+One `.tags/<tag>/<title>.md` filename cannot simultaneously point to different
+hashes. A collision is skipped by default; `--force` replaces the single visible
+entry but does not merge or delete the independent archive mappings. Use
+`remove <source-path>` to remove one precise mapping; if another mapping can
+occupy that filename, it is restored immediately.
+
+同一 `.tags/<标签>/<标题>.md` 文件名不支持同时指向不同 hash。默认跳过冲突；
+`--force` 只替换唯一的可见入口，不会合并或删除各自独立的归档映射。使用
+`remove <源路径>` 精确删除一条映射；若还有映射可以占用该文件名，会立即恢复。
 
 ## Frontmatter / Frontmatter 要求
 
@@ -96,25 +135,30 @@ Search order / 查找顺序：
 
 `.archive/objects/<prefix>/<sha256>.md` stores one durable object per unique
 file content. `.archive/index.tsv` is the source-path-to-hash table. Multiple
-existing paths with one hash are copies; a missing old path replaced by a new
-path with the same hash is reconciled as a move. `.tags/<tag>/` links point to
-the original source files.
+source paths may share one hash and one object. Every observed path remains an
+independent mapping even after it disappears; equal content is never used to
+guess that a file moved. Only `remove` deletes a mapping. `.tags/<tag>/` entries prefer
+the original source and fall back to the durable object if that source is gone.
 
 `.archive/objects/<前缀>/<sha256>.md` 按内容保存唯一持久对象，
-`.archive/index.tsv` 是源路径到哈希的映射表。同一哈希下仍存在的多个路径表示复制；
-旧路径消失而相同哈希出现在新路径时会按移动处理。`.tags/<tag>/` 链接直接指向原始源文件。
+`.archive/index.tsv` 是源路径到哈希的映射表。多个源路径可以共享同一哈希和对象；
+即使路径已经消失也会保留其独立映射，不会根据内容相同猜测文件发生了移动。
+只有 `remove` 会删除映射。`.tags/<tag>/` 优先指向原始源文件，
+源文件消失后回退到持久对象。
 
 When Windows cannot create symbolic links, tag entries use hard links instead.
-Commit `.archive/index.tsv` and `.archive/objects/`, while keeping `.tags/`
-ignored. After a cross-platform clone, every operational command silently
+Commit `.archive/index.tsv` and `.archive/objects/`. Keep the entire `.tags/`
+tree ignored as platform-local derived state. After a
+cross-platform clone, every operational command silently
 recreates missing tag links from the portable hash index before doing its work.
 Legacy checked-out link representations are also normalized. `rebuild`
-performs the same pass explicitly.
+performs the same pass explicitly, removes obsolete root overview files, and does not
+delete archive mappings or objects.
 
 Windows 无法创建符号链接时，标签条目会自动使用硬链接。跨平台 clone 后，
-应提交 `.archive/index.tsv` 和 `.archive/objects/`，并保持 `.tags/` 被忽略。
+应提交 `.archive/index.tsv` 和 `.archive/objects/`；整个 `.tags/` 都是平台本地派生状态并应忽略。
 每个业务命令都会先根据可移植哈希索引静默重建缺失链接，同时兼容旧版跨端链接
-表示；`rebuild` 可显式执行同一过程。
+表示；`rebuild` 可显式执行同一过程并移除遗留根级概览页，但不会删除归档映射或对象。
 
 ## Exit Codes / 退出码
 

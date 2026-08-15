@@ -134,6 +134,34 @@ make uninstall
 
 `--workspace <path>` 会在本次调用中覆盖配置里的 workspace。
 
+## Rebuild invariants / Rebuild 不变量
+
+`.archive/index.tsv` plus `.archive/objects/` is the durable source of truth;
+`.tags/` is a derived, platform-local view. `TagManager` restores only the
+per-document entry at `.tags/<tag>/<title>.md`; v1.1.0 has no root overview page.
+Restoration prefers an existing source, then falls back to
+the indexed hash object and parses its frontmatter. Filesystem deletion of a
+source must therefore not erase archive visibility. Only `remove` may delete
+the mapping and eventually prune an unreferenced object.
+
+The index is a source-path-to-hash multimap in the semantic sense: several path
+rows may reference the same object, and missing historical paths remain recorded.
+Code must not infer moves from content equality. The entire `.tags/` tree is
+regenerated on each platform and ignored by Git.
+
+`.archive/index.tsv` 与 `.archive/objects/` 共同构成持久事实来源，`.tags/` 是可派生的
+平台本地视图。`TagManager` 只恢复 `.tags/<标签>/<标题>.md` 文档入口；v1.1.0 不再生成
+根级概览页。恢复时优先使用仍存在的源文件，否则根据索引 hash 读取归档对象
+并解析其 frontmatter。因此，用户在文件系统中删除源文件不得导致归档不可见；只有 `remove`
+可以删除映射，并最终清理不再被引用的对象。
+
+`normalize_all_links` may replace a link representation during maintenance, but
+must not emit the user-facing `add --force` conflict warning. `rebuild_all_links`
+must not re-hash sources, mutate source-to-hash mappings, or prune objects.
+
+`normalize_all_links` 在维护过程中可以替换链接表示，但不得输出面向 `add --force` 的冲突警告。
+`rebuild_all_links` 不得重新计算源文件 hash、修改源路径映射或清理对象。
+
 ## C++ Modules / C++ Modules 说明
 
 The project now builds the main code through real C++ named modules:
