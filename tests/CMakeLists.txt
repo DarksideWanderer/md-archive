@@ -21,3 +21,9 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
         -DMD_ARCHIVE_BINARY=$<TARGET_FILE:md-archive>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cli_archive_test.cmake)
+
+add_test(
+    NAME cli_config_test
+    COMMAND ${CMAKE_COMMAND}
+        -DMD_ARCHIVE_BINARY=$<TARGET_FILE:md-archive>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cli_config_test.cmake)

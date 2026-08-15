@@ -217,10 +217,13 @@ bool validate_relative_dir(const fs::path& value, const char* key) {
     return true;
 }
 
-void write_example_config(std::ostream& out, const fs::path& workspace) {
+void write_example_config(std::ostream& out) {
     out << "[archive]\n";
     out << "# Workspace root for your Markdown notes / Markdown 工作区根目录\n";
-    out << "workspace = " << to_utf8(workspace) << "\n";
+    // Keep generated project configuration portable across clones, directory
+    // moves, drive-letter changes, and different machines. Relative workspace
+    // values are resolved against the config file's directory by Config::load.
+    out << "workspace = .\n";
     out << "# Tag navigation directory, relative to workspace / 标签导航目录，相对 workspace\n";
     out << "tags_dir = .tags\n";
     out << "# Hash-addressed archive directory, relative to workspace / 哈希寻址归档目录，相对 workspace\n";
@@ -296,6 +299,8 @@ std::optional<Config> Config::load(const fs::path& requested_config_path,
 
     auto canonical_workspace = canonical_existing_directory(cfg.workspace, "workspace");
     if (!canonical_workspace) {
+        std::cerr << "提示: 已读取配置文件: " << to_utf8(actual_config_path) << "\n"
+                  << "请修改 [archive] 中的 workspace，或本次使用 `--workspace .` 覆盖。\n";
         return std::nullopt;
     }
     cfg.workspace = *canonical_workspace;
@@ -403,7 +408,7 @@ bool Config::init_config(const fs::path& directory, bool force) {
         std::cerr << "错误: 无法写入配置文件: " << to_utf8(path) << "\n";
         return false;
     }
-    write_example_config(out, dir);
+    write_example_config(out);
     std::cout << "已生成配置文件: " << to_utf8(path) << "\n";
     return true;
 }
