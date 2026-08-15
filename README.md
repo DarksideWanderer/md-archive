@@ -8,13 +8,13 @@
 
 - Stores one SHA-256-addressed backup object per unique Markdown content.
 - Records every source path in `.archive/index.tsv`, so copies and moves can be distinguished without duplicate backups.
-- Creates `.tags/<tag>/` links that point to the original source files.
+- Creates `.tags/<tag>/` links to existing sources, with durable-object fallback after source deletion.
 - Supports `add`, `scan`, `list`, `docs`, `remove`, `rebuild`, `init`, and `config` commands.
 - Uses C++23 named modules, `import std;`, CMake, Ninja, and zero external runtime dependencies.
 
 - 按 Markdown 完整内容的 SHA-256 哈希保存唯一备份对象。
 - 在 `.archive/index.tsv` 中记录所有源路径，可辨别复制和移动且不产生重复备份。
-- 在 `.tags/<tag>/` 下创建准确指向原始源文件的链接。
+- 在 `.tags/<tag>/` 下创建指向现有源文件的链接；源文件删除后回退到持久归档对象。
 - 支持 `add`、`scan`、`list`、`docs`、`remove`、`rebuild`、`init` 和 `config`。
 - 使用 C++23 命名模块、`import std;`、CMake、Ninja，无外部运行时依赖。
 
@@ -42,15 +42,17 @@ Each archive operation:
 1. Parse top-of-file YAML frontmatter with `tags` and `title`.
 2. Hash the complete file with SHA-256 and store it once under `.archive/objects/`.
 3. Update `.archive/index.tsv` with the workspace-relative source path and hash.
-4. Create links under `.tags/<tag>/` pointing to the source file.
+4. Create links under `.tags/<tag>/` pointing to the source file while it exists.
 
-Identical files at multiple paths share one object. If an indexed path disappears
-and identical content appears at a new path, it is treated as a move. Existing
-paths remain aliases, representing copies. Pre-1.0 path-mirrored archives are
-migrated automatically on the first command.
+Identical files at multiple paths share one object, while every observed source
+path remains a separate row in `index.tsv` even after that path disappears.
+md-archive never guesses whether equal content represents a copy or a move;
+only an explicit `remove` deletes a path mapping. Pre-1.0 path-mirrored archives
+are migrated automatically on the first command.
 
-多个路径下内容完全相同的文件共享一个对象。旧路径消失、相同内容出现在新路径时，
-会识别为移动；旧路径仍存在时则作为复制别名保留。1.0 以前按路径镜像的归档会在
+多个路径下内容完全相同的文件共享一个对象，但每个出现过的源路径都会保留独立映射，
+即使路径后来消失也不会根据相同内容猜测为移动；只有显式 `remove` 才会删除映射。
+1.0 以前按路径镜像的归档会在
 首次运行命令时自动迁移。
 
 ## Installation / 安装
@@ -179,21 +181,100 @@ See [docs/CLI.md](docs/CLI.md) for details.
 | Same source path / 相同源路径 | Warn and skip / 警告并跳过 | Re-hash content, update source mapping, prune unreferenced object, and rebuild links / 重新计算哈希、更新源映射、清理无引用对象并重建链接 |
 | Same title in a tag / 同标签内 title 冲突 | Skip that tag / 跳过该标签 | Replace the tag link / 覆盖标签链接 |
 
+### Tag filename constraint / 标签文件名限制
+
+Within one tag directory, the same normalized filename cannot simultaneously
+represent different hashes. In other words, `.tags/<tag>/<title>.md` is a
+single visible slot, not a multi-value index. Without `--force`, a different
+hash claiming that filename is rejected. With `--force`, the new document
+replaces the visible entry; both source-to-hash mappings remain archived, and
+removing the visible source path immediately reveals a remaining mapping.
+
+同一个标签目录中，规范化后的同一文件名不支持同时对应不同 hash。也就是说，
+`.tags/<标签>/<标题>.md` 是单一可见入口，不是多值索引。不带 `--force` 时，使用该文件名
+但 hash 不同的文档会被拒绝；带 `--force` 时，新文档只会替换当前可见入口。两条源路径到
+hash 的归档映射仍分别保留；按源路径移除当前可见文档后，剩余映射会立即恢复为可见入口。
+
 `.archive/` is durable storage, not a temporary cache. `scan` skips `.archive/` and `.tags/`.
 
 `.archive/` 是持久内容副本，不是临时缓存。`scan` 会跳过 `.archive/` 和 `.tags/`。
 
-Commit `.archive/index.tsv` and `.archive/objects/`; they are the portable state
-of the archive. `.tags/` remains local and ignored because its link type is
-platform-specific. After a cross-platform clone, the first `md-archive` command
-uses the committed hash table to recreate tag links native to the current
-system. On Windows, md-archive falls back to hard links when native symbolic
+Commit `.archive/index.tsv` and `.archive/objects/`. The entire `.tags/` tree is
+platform-local derived state and remains ignored. After a cross-platform clone, the first
+`md-archive` command recreates native document entries from the committed hash
+table. On Windows, md-archive falls back to hard links when native symbolic
 links are not permitted. `rebuild` remains available for an explicit pass.
 
-应提交 `.archive/index.tsv` 和 `.archive/objects/`，它们是可跨平台的归档状态。
-`.tags/` 因链接类型依赖平台而保持本地并被忽略。跨平台 clone 后，第一次运行任意
+应提交 `.archive/index.tsv` 和 `.archive/objects/`。整个 `.tags/` 都是平台本地派生状态并被忽略。
+跨平台 clone 后，第一次运行任意
 `md-archive` 命令会根据已提交的哈希表重建当前系统的标签链接。Windows 无权创建
 原生符号链接时会自动改用硬链接；`rebuild` 可用于显式执行整理。
+
+## What `rebuild` Does / `rebuild` 的预期行为
+
+`rebuild` repairs the derived tag views. Its durable inputs are
+`.archive/index.tsv` and `.archive/objects/`; it also inspects existing `.tags/`
+entries to normalize symbolic links, Windows hard links, and Git's one-line
+link files. For every indexed document it reads frontmatter from the source
+when that source still exists, otherwise from the hash-addressed archive object.
+
+`rebuild` 是派生标签视图的修复命令。它以 `.archive/index.tsv` 和
+`.archive/objects/` 为持久数据源，同时检查已有 `.tags/` 条目，将符号链接、
+Windows 硬链接和 Git 检出的单行链接文件整理为当前平台可用的形式。对每条索引记录，
+源文件存在时读取源文件的 frontmatter；源文件已被用户删除时改读哈希归档对象。
+
+It rebuilds `.tags/<tag>/<title>.md` document entries only; root-level
+`.tags/<tag>.md` overview pages are not part of v1.1.0 and obsolete ones are
+removed. A missing source is not treated as an archive deletion: the recovered
+entry links directly to the durable object. Only the explicit
+`remove` command removes a source mapping and prunes an unreferenced object.
+User-facing `list` and `docs` output never exposes the hash-object path: when
+several source paths share a hash, it displays the first indexed source path,
+even if that historical path no longer exists.
+
+它只重建 `.tags/<标签>/<标题>.md` 文档入口；v1.1.0 不再提供根级
+`.tags/<标签>.md` 概览页，并会移除遗留概览页。源文件消失不等于删除归档：
+恢复出的入口会直接链接到持久归档对象。只有显式执行 `remove` 才会移除源路径映射，
+并在对象不再被引用时清理对象。
+面向用户的 `list` 和 `docs` 不显示哈希对象路径；同一 hash 对应多个源路径时，显示
+索引中的第一条原路径，即使该历史路径已经不存在。
+
+Messages printed as `整理标签` describe link/index repair; they do not mean
+Markdown content was overwritten. `rebuild` does not re-hash existing sources,
+change `index.tsv` mappings, or prune archive objects.
+
+输出中的 `整理标签` 表示修复链接和索引页，并不表示覆盖 Markdown 正文。
+`rebuild` 不会重新计算现有源文件的哈希、修改 `index.tsv` 映射或清理归档对象。
+
+## Data Safety and UTF-8 / 数据安全与 UTF-8
+
+- `index.tsv` and hash objects are replaced transactionally through verified
+  temporary files and recoverable `.bak` files. Startup restores an interrupted
+  replacement automatically.
+- A copied object is hashed again before it is installed. Existing objects are
+  verified during forced updates and repaired from the source when corrupted.
+- A malformed `index.tsv` is never partially parsed and overwritten. Invalid
+  absolute or `..` source paths are rejected and the index becomes read-only
+  for that invocation.
+- Legacy path-mirrored files are deleted only after the new index is safely
+  committed, and only when a corresponding source proves they are legacy data.
+- CLI paths use UTF-8 conversion through `std::filesystem`; Windows command-line
+  arguments are read as UTF-16 and converted to UTF-8. UTF-8 BOM frontmatter,
+  Chinese paths, spaces, titles, and tags are covered by tests.
+- Tag names are single safe path components on every platform. Traversal,
+  separators, control characters, Windows reserved characters, and device names
+  are rejected. Reserved document titles are made safe consistently.
+
+- `index.tsv` 和哈希对象均通过已校验的临时文件及可恢复 `.bak` 文件事务式替换；
+  启动时会自动恢复被中断的替换。
+- 对象副本安装前会再次计算 hash；强制更新时会校验已有对象，并用源文件修复损坏对象。
+- 畸形 `index.tsv` 不会被“解析一半后覆盖”。绝对路径和包含 `..` 的源路径会被拒绝，
+  本次运行禁止改写该索引。
+- 旧版路径镜像文件只在新索引安全落盘后删除，并且必须存在对应源文件才能判定为旧版数据。
+- CLI 路径统一使用 UTF-8 与 `std::filesystem` 转换；Windows 命令行先按 UTF-16 读取再转
+  UTF-8。测试覆盖 UTF-8 BOM、中文路径、空格、中文标题和标签。
+- 标签名在所有平台都必须是安全的单一路径组件；拒绝路径逃逸、分隔符、控制字符、
+  Windows 保留字符及设备名，并统一处理保留文档标题。
 
 ## Directory Layout / 目录结构
 
@@ -230,7 +311,9 @@ Starting with 0.2.0, every released code state is retained by an annotated Git
 tag. `v0.2.0` is the preserved pre-hash-storage baseline; 1.0 introduces the
 hash-addressed archive format and automatic legacy migration. `v1.0.1` fixes
 automatic Clang discovery from an MSYS2 shell. `v1.0.2` installs into the
-MSYS2 `/usr/bin` prefix instead of Windows Program Files.
+MSYS2 `/usr/bin` prefix instead of Windows Program Files. `v1.1.0` unifies
+Windows and macOS rebuild behavior around directory-only tag entries, preserves
+all source-path aliases, and fixes hash filenames leaking into `list` output.
 
 从 0.2.0 开始，每个发布版本都使用带说明的 Git 标签保留完整代码状态。
 `v0.2.0` 是引入哈希存储前的基线；1.0 引入哈希寻址归档格式和旧版自动迁移。
@@ -259,8 +342,8 @@ Please read:
 Commit `.archive/index.tsv` and `.archive/objects/` to preserve portable archive
 state. Do not commit `.tags/`, local `config.ini`, build directories, or binaries.
 
-请提交 `.archive/index.tsv` 和 `.archive/objects/` 以保留跨平台归档状态；不要提交
-`.tags/`、本地 `config.ini`、构建目录或二进制文件。
+请提交 `.archive/index.tsv` 和 `.archive/objects/`；不要提交 `.tags/`、
+本地 `config.ini`、构建目录或二进制文件。
 
 ## License / 许可证
 

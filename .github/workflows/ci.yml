@@ -89,3 +89,30 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  windows-build-test:
+    name: windows-latest
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install MSYS2 Clang toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+
+      - name: Configure, build, and test
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_CXX_COMPILER=/clang64/bin/clang++ \
+            -DCMAKE_CXX_STDLIB_MODULES_JSON=/clang64/lib/libc++.modules.json \
+            -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
+          cmake --build build
+          ctest --test-dir build --output-on-failure

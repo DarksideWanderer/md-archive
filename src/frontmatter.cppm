@@ -103,6 +103,8 @@ DocumentMeta parse_frontmatter(const fs::path& file_path) {
     std::string line;
     if (!std::getline(in, line))
         return meta;
+    if (line.starts_with("\xEF\xBB\xBF"))
+        line.erase(0, 3);
     if (trim(line) != "---")
         return meta;
 

@@ -67,6 +67,16 @@ int main() {
     auto no_frontmatter = parse_frontmatter(write_note(dir, "plain.md", "# Plain\n"));
     expect(!no_frontmatter.has_frontmatter, "plain markdown should not report frontmatter");
 
+    auto bom = parse_frontmatter(write_note(dir, "bom.md",
+                                            "\xEF\xBB\xBF"
+                                            "---\n"
+                                            "tags: [UTF-8]\n"
+                                            "title: BOM note\n"
+                                            "---\n"));
+    expect(bom.has_frontmatter && bom.closed_frontmatter,
+           "UTF-8 BOM should not hide frontmatter");
+    expect(bom.has_title && bom.title == "BOM note", "BOM title should parse");
+
     fs::remove_all(dir);
     return failures == 0 ? 0 : 1;
 }
