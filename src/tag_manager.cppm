@@ -444,7 +444,7 @@ std::vector<std::string> TagManager::archive(const fs::path& md_file, bool force
     }
 
     fs::path rel = fs::relative(source, cfg.workspace);
-    auto current_hash = md_archive::sha256_file(source);
+    auto current_hash = md_archive::sha256_markdown_file(source);
     if (!current_hash) {
         std::cerr << "错误: 无法读取文件并计算 SHA-256\n";
         return {};

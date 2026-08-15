@@ -253,6 +253,9 @@ change `index.tsv` mappings, or prune archive objects.
   replacement automatically.
 - A copied object is hashed again before it is installed. Existing objects are
   verified during forced updates and repaired from the source when corrupted.
+- Markdown identity normalizes CRLF, LF, and CR to LF before hashing, so Git
+  checkout line-ending policy does not create platform-specific hashes. Stored
+  object bytes are still preserved exactly and protected by `.gitattributes`.
 - A malformed `index.tsv` is never partially parsed and overwritten. Invalid
   absolute or `..` source paths are rejected and the index becomes read-only
   for that invocation.
@@ -268,6 +271,8 @@ change `index.tsv` mappings, or prune archive objects.
 - `index.tsv` 和哈希对象均通过已校验的临时文件及可恢复 `.bak` 文件事务式替换；
   启动时会自动恢复被中断的替换。
 - 对象副本安装前会再次计算 hash；强制更新时会校验已有对象，并用源文件修复损坏对象。
+- Markdown 计算 hash 前会将 CRLF、LF 和 CR 统一视为 LF，避免 Git 换行策略产生平台相关
+  hash；归档对象仍精确保留原始字节，并由 `.gitattributes` 禁止 checkout 转换。
 - 畸形 `index.tsv` 不会被“解析一半后覆盖”。绝对路径和包含 `..` 的源路径会被拒绝，
   本次运行禁止改写该索引。
 - 旧版路径镜像文件只在新索引安全落盘后删除，并且必须存在对应源文件才能判定为旧版数据。
