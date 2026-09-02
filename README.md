@@ -8,14 +8,16 @@
 
 - Stores one SHA-256-addressed backup object per unique Markdown content.
 - Records every source path in `.archive/index.tsv`, so copies and moves can be distinguished without duplicate backups.
+- Supports portable hierarchical tags such as `Graph/Trees` as nested `.tags/` directories.
 - Creates `.tags/<tag>/` links to existing sources, with durable-object fallback after source deletion.
-- Supports `add`, `scan`, `list`, `docs`, `remove`, `rebuild`, `init`, and `config` commands.
+- Supports `add`, `scan`, `list`, `docs`, `search`, `remove`, `rebuild`, `init`, and `config` commands.
 - Uses C++23 named modules, `import std;`, CMake, Ninja, and zero external runtime dependencies.
 
 - 按 Markdown 完整内容的 SHA-256 哈希保存唯一备份对象。
 - 在 `.archive/index.tsv` 中记录所有源路径，可辨别复制和移动且不产生重复备份。
+- 支持 `图论/树` 形式的跨平台层级标签，并在 `.tags/` 中建立对应的嵌套目录。
 - 在 `.tags/<tag>/` 下创建指向现有源文件的链接；源文件删除后回退到持久归档对象。
-- 支持 `add`、`scan`、`list`、`docs`、`remove`、`rebuild`、`init` 和 `config`。
+- 支持 `add`、`scan`、`list`、`docs`、`search`、`remove`、`rebuild`、`init` 和 `config`。
 - 使用 C++23 命名模块、`import std;`、CMake、Ninja，无外部运行时依赖。
 
 ## How It Works / 工作原理
@@ -152,7 +154,10 @@ md-archive scan
 md-archive scan --force
 md-archive list
 md-archive list 算法
+md-archive list 图论/树
 md-archive docs
+md-archive search Dijkstra
+md-archive search -all shortest-path
 md-archive remove path/to/note.md
 md-archive rebuild
 ```
@@ -163,7 +168,7 @@ Markdown 文件必须以闭合 frontmatter 开头：
 
 ```markdown
 ---
-tags: [算法, 动态规划, 背包问题]
+tags: [算法, 动态规划/背包问题]
 title: 01 背包问题详解
 ---
 
@@ -224,20 +229,20 @@ Windows 硬链接和 Git 检出的单行链接文件整理为当前平台可用�
 源文件存在时读取源文件的 frontmatter；源文件已被用户删除时改读哈希归档对象。
 
 It rebuilds `.tags/<tag>/<title>.md` document entries only; root-level
-`.tags/<tag>.md` overview pages are not part of v1.1.0 and obsolete ones are
+`.tags/<tag>.md` overview pages are not part of v1.2.0 and obsolete ones are
 removed. A missing source is not treated as an archive deletion: the recovered
 entry links directly to the durable object. Only the explicit
 `remove` command removes a source mapping and prunes an unreferenced object.
-User-facing `list` and `docs` output never exposes the hash-object path: when
-several source paths share a hash, it displays the first indexed source path,
-even if that historical path no longer exists.
+User-facing `list` and `docs` read the durable index directly and never expose
+hash-object paths. They therefore remain complete even if `.tags/` is missing
+or damaged; every indexed source path remains visible.
 
-它只重建 `.tags/<标签>/<标题>.md` 文档入口；v1.1.0 不再提供根级
+它只重建 `.tags/<标签>/<标题>.md` 文档入口；v1.2.0 不再提供根级
 `.tags/<标签>.md` 概览页，并会移除遗留概览页。源文件消失不等于删除归档：
 恢复出的入口会直接链接到持久归档对象。只有显式执行 `remove` 才会移除源路径映射，
 并在对象不再被引用时清理对象。
-面向用户的 `list` 和 `docs` 不显示哈希对象路径；同一 hash 对应多个源路径时，显示
-索引中的第一条原路径，即使该历史路径已经不存在。
+面向用户的 `list` 和 `docs` 直接读取持久索引，不显示哈希对象路径。因此即使 `.tags/`
+缺失或损坏也不会漏文档；每条已索引的源路径都会保持可见。
 
 Messages printed as `整理标签` describe link/index repair; they do not mean
 Markdown content was overwritten. `rebuild` does not re-hash existing sources,
@@ -298,7 +303,8 @@ workspace/
 │   ├── 算法/
 │   │   └── 01背包问题.md -> ../../note1.md
 │   └── 数据结构/
-│       └── 线段树.md -> ../../note2.md
+│       └── 树/
+│           └── 线段树.md -> ../../../note2.md
 └── config.ini
 ```
 
@@ -319,6 +325,8 @@ automatic Clang discovery from an MSYS2 shell. `v1.0.2` installs into the
 MSYS2 `/usr/bin` prefix instead of Windows Program Files. `v1.1.0` unifies
 Windows and macOS rebuild behavior around directory-only tag entries, preserves
 all source-path aliases, and fixes hash filenames leaking into `list` output.
+`v1.2.0` adds portable hierarchical tags, index-backed listing, and
+name/full-text search.
 
 从 0.2.0 开始，每个发布版本都使用带说明的 Git 标签保留完整代码状态。
 `v0.2.0` 是引入哈希存储前的基线；1.0 引入哈希寻址归档格式和旧版自动迁移。

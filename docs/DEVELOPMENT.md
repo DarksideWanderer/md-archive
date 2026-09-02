@@ -138,7 +138,9 @@ make uninstall
 
 `.archive/index.tsv` plus `.archive/objects/` is the durable source of truth;
 `.tags/` is a derived, platform-local view. `TagManager` restores only the
-per-document entry at `.tags/<tag>/<title>.md`; v1.1.0 has no root overview page.
+per-document entry at `.tags/<tag>/<title>.md`; v1.2.0 supports nested tag
+directories and has no root overview page. User-facing enumeration and search
+must read the archive index, never rely on the derived view being complete.
 Restoration prefers an existing source, then falls back to
 the indexed hash object and parses its frontmatter. Filesystem deletion of a
 source must therefore not erase archive visibility. Only `remove` may delete
@@ -150,8 +152,9 @@ Code must not infer moves from content equality. The entire `.tags/` tree is
 regenerated on each platform and ignored by Git.
 
 `.archive/index.tsv` 与 `.archive/objects/` 共同构成持久事实来源，`.tags/` 是可派生的
-平台本地视图。`TagManager` 只恢复 `.tags/<标签>/<标题>.md` 文档入口；v1.1.0 不再生成
-根级概览页。恢复时优先使用仍存在的源文件，否则根据索引 hash 读取归档对象
+平台本地视图。`TagManager` 只恢复 `.tags/<标签>/<标题>.md` 文档入口；v1.2.0 支持嵌套标签
+目录且不生成根级概览页。面向用户的枚举和搜索必须读取归档索引，不能假定派生视图完整。
+恢复时优先使用仍存在的源文件，否则根据索引 hash 读取归档对象
 并解析其 frontmatter。因此，用户在文件系统中删除源文件不得导致归档不可见；只有 `remove`
 可以删除映射，并最终清理不再被引用的对象。
 
