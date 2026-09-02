@@ -11,7 +11,7 @@ md-archive config show
 md-archive config path
 md-archive add <file.md> [--force]
 md-archive scan [--force]
-md-archive list [tag]
+md-archive list [-exact] [tag]
 md-archive docs
 md-archive search <word>
 md-archive search -all <word>
@@ -51,9 +51,12 @@ md-archive rebuild
 
 `scan [--force]`：归档 workspace 下的 Markdown 文件，并跳过 `.archive/` 和 `.tags/`。
 
-`list [tag]`: list all tags or documents under one tag.
+`list [tag]`: list all tags or documents under one tag. A tag query includes
+all descendant tags by default. `list -exact <tag>` (also `--exact`) matches
+only the exact frontmatter tag; the flag may also follow the tag.
 
-`list [tag]`：列出所有标签，或列出某个标签下的文档。
+`list [tag]`：列出所有标签，或列出某个标签下的文档。标签查询默认包含所有子层级；
+`list -exact <标签>`（也支持 `--exact`）只匹配完全相等的 frontmatter 标签，参数也可写在标签之后。
 
 `docs`: list archived documents.
 
@@ -106,9 +109,18 @@ prints and accepts the same form: `md-archive list A/B/C`. Each component must
 be a portable filename: empty components, `.`, `..`, backslashes, control
 characters, Windows reserved characters/names, and trailing spaces or dots are rejected.
 
+Parent queries aggregate descendants without creating duplicate files. Thus
+`list A` matches `A`, `A/B`, and `A/B/C`, while `list -exact A` matches only
+documents explicitly tagged `A`. On Windows, md-archive also recovers an
+`A/B` argument converted by MSYS2, so no argument-conversion environment variable is needed.
+
 标签语法在 Windows、Linux 和 macOS 上一律使用 Unix 风格的 `/`。`list` 的输出和查询
 同样使用该形式，例如 `md-archive list A/B/C`。每一段都必须是跨平台安全文件名；空段、
 `.`、`..`、反斜杠、控制字符、Windows 保留字符/名称以及末尾空格或点都会被拒绝。
+
+父标签查询通过索引聚合子层级，不会复制文件。因此 `list A` 会匹配 `A`、`A/B` 和
+`A/B/C`，而 `list -exact A` 只匹配显式标记为 `A` 的文档。在 Windows 上也会自动恢复
+被 MSYS2 转换的 `A/B` 参数，无需额外设置参数转换环境变量。
 
 `整理标签` means a link representation was repaired. It
 does not mean that archived Markdown content was forcibly overwritten.

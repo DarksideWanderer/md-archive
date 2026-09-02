@@ -17,6 +17,20 @@ if(NOT EXISTS "${workspace}/.tags/图论/树/基础/层级树指南.md")
     message(FATAL_ERROR "hierarchical tag entry was not created as nested directories")
 endif()
 
+file(WRITE "${workspace}/notes/parent.md"
+    "---\ntags: [Graph]\ntitle: Parent Only\n---\n# Exact parent document\n")
+file(WRITE "${workspace}/notes/flow.md"
+    "---\ntags: [Graph/Flow]\ntitle: Flow Child\n---\n# Sibling child document\n")
+foreach(extra_doc IN ITEMS parent.md flow.md)
+    execute_process(
+        COMMAND "${MD_ARCHIVE_BINARY}" --config "${workspace}/config.ini" add
+                "${workspace}/notes/${extra_doc}"
+        RESULT_VARIABLE extra_result OUTPUT_VARIABLE extra_output ERROR_VARIABLE extra_error)
+    if(NOT extra_result EQUAL 0)
+        message(FATAL_ERROR "could not add ${extra_doc}:\n${extra_output}\n${extra_error}")
+    endif()
+endforeach()
+
 execute_process(
     COMMAND "${MD_ARCHIVE_BINARY}" --config "${workspace}/config.ini" list
     RESULT_VARIABLE list_result OUTPUT_VARIABLE list_output ERROR_VARIABLE list_error)
@@ -28,6 +42,47 @@ execute_process(
     RESULT_VARIABLE tag_result OUTPUT_VARIABLE tag_output ERROR_VARIABLE tag_error)
 if(NOT tag_result EQUAL 0 OR NOT tag_output MATCHES "notes[/\\\\]guide.md")
     message(FATAL_ERROR "hierarchical tag lookup failed:\n${tag_output}\n${tag_error}")
+endif()
+
+# Parent queries include every descendant by default and deduplicate documents.
+execute_process(
+    COMMAND "${MD_ARCHIVE_BINARY}" --config "${workspace}/config.ini" list Graph
+    RESULT_VARIABLE parent_result OUTPUT_VARIABLE parent_output ERROR_VARIABLE parent_error)
+if(NOT parent_result EQUAL 0 OR
+   NOT parent_output MATCHES "notes[/\\\\]guide.md" OR
+   NOT parent_output MATCHES "notes[/\\\\]parent.md" OR
+   NOT parent_output MATCHES "notes[/\\\\]flow.md")
+    message(FATAL_ERROR "parent tag did not aggregate descendants:\n${parent_output}\n${parent_error}")
+endif()
+
+# -exact may appear before or after the tag and excludes descendant-only matches.
+execute_process(
+    COMMAND "${MD_ARCHIVE_BINARY}" --config "${workspace}/config.ini" list -exact Graph
+    RESULT_VARIABLE exact_result OUTPUT_VARIABLE exact_output ERROR_VARIABLE exact_error)
+if(NOT exact_result EQUAL 0 OR
+   NOT exact_output MATCHES "notes[/\\\\]parent.md" OR
+   exact_output MATCHES "notes[/\\\\](guide|flow).md")
+    message(FATAL_ERROR "exact parent lookup was not exact:\n${exact_output}\n${exact_error}")
+endif()
+execute_process(
+    COMMAND "${MD_ARCHIVE_BINARY}" --config "${workspace}/config.ini" list Graph/Tree --exact
+    RESULT_VARIABLE branch_exact_result OUTPUT_VARIABLE branch_exact_output
+    ERROR_VARIABLE branch_exact_error)
+if(NOT branch_exact_result EQUAL 0 OR branch_exact_output MATCHES "guide.md")
+    message(FATAL_ERROR "exact intermediate lookup included descendants:\n${branch_exact_output}\n${branch_exact_error}")
+endif()
+
+if(WIN32)
+    # Simulate MSYS2 converting Graph/Tree into an absolute path for a native executable.
+    execute_process(
+        COMMAND "${MD_ARCHIVE_BINARY}" --config "${workspace}/config.ini"
+                list "${workspace}/Graph/Tree"
+        WORKING_DIRECTORY "${workspace}"
+        RESULT_VARIABLE converted_result OUTPUT_VARIABLE converted_output
+        ERROR_VARIABLE converted_error)
+    if(NOT converted_result EQUAL 0 OR NOT converted_output MATCHES "guide.md")
+        message(FATAL_ERROR "MSYS2-converted tag lookup failed:\n${converted_output}\n${converted_error}")
+    endif()
 endif()
 
 # `.tags` is disposable. A read command must still discover every indexed source

@@ -5,6 +5,27 @@ All notable changes to `md-archive` are recorded here. The project follows
 
 这里记录 `md-archive` 的重要变化；版本号遵循语义化版本规范。
 
+## [1.2.1] - 2026-09-02
+
+### Added / 新增
+
+- Parent tag queries now aggregate all descendant tags. For example,
+  `list 图论` includes documents tagged `图论/树` and `图论/树/二叉树`.
+- Added `list -exact <tag>` (also `--exact`) to match only the exact frontmatter
+  tag. The flag may appear before or after the tag.
+- Added recovery for tag arguments that MSYS2 converted from `A/B` into an
+  absolute Windows path, so `MSYS2_ARG_CONV_EXCL` is no longer required.
+- `list` now exposes intermediate parent categories and deduplicates documents
+  carrying both a parent and one of its descendant tags.
+
+- 父标签查询会自动聚合所有子层级。例如，`list 图论` 会包含标记为
+  `图论/树`、`图论/树/二叉树` 的文档。
+- 新增 `list -exact <标签>`（也支持 `--exact`），只匹配 frontmatter 中完全相等的标签；
+  参数可写在标签之前或之后。
+- 自动恢复被 MSYS2 从 `A/B` 转换成 Windows 绝对路径的标签参数，不再要求设置
+  `MSYS2_ARG_CONV_EXCL`。
+- `list` 会显示中间父级分类，并对同时拥有父、子标签的文档去重。
+
 ## [1.2.0] - 2026-09-02
 
 ### Added / 新增
@@ -47,10 +68,7 @@ All notable changes to `md-archive` are recorded here. The project follows
 - 新增端到端测试，覆盖 Unicode 层级标签、`A/B/C` 精确查询、自动恢复视图、
   名称搜索、全文搜索及危险标签输入。
 
-## 1.1.0 - 2026-08-15
-
-> Development milestone recorded in the repository history but not published
-> as a Git tag. / 此版本是仓库历史中的开发里程碑，未发布同名 Git tag。
+## [1.1.0] - 2026-08-15
 
 - Unified Windows and macOS rebuild behavior around directory-only tag entries.
 - Preserved every source-path alias for shared content hashes.
@@ -61,6 +79,11 @@ All notable changes to `md-archive` are recorded here. The project follows
 - 保留同一内容哈希对应的所有源路径别名。
 - 修复 `list` 输出泄露内部哈希对象文件名的问题。
 - 改进源文件删除后及跨平台场景中的标签链接恢复。
+
+## [1.0.2] - 2026-08-15
+
+- Installed into the MSYS2 `/usr/bin` prefix instead of Windows Program Files.
+- 改为安装到 MSYS2 的 `/usr/bin`，而不是 Windows Program Files。
 
 ## [1.0.1] - 2026-08-15
 
@@ -85,7 +108,10 @@ All notable changes to `md-archive` are recorded here. The project follows
 - 将引入哈希存储之前的实现保留为历史版本。
 - 改进 UTF-8 与 Windows 路径处理。
 
-[1.2.0]: https://github.com/DarksideWanderer/md-archive/compare/v1.0.1...windows-update
+[1.2.1]: https://github.com/DarksideWanderer/md-archive/compare/v1.2.0...windows-update
+[1.2.0]: https://github.com/DarksideWanderer/md-archive/releases/tag/v1.2.0
+[1.1.0]: https://github.com/DarksideWanderer/md-archive/releases/tag/v1.1.0
+[1.0.2]: https://github.com/DarksideWanderer/md-archive/releases/tag/v1.0.2
 [1.0.1]: https://github.com/DarksideWanderer/md-archive/releases/tag/v1.0.1
 [1.0.0]: https://github.com/DarksideWanderer/md-archive/releases/tag/v1.0.0
 [0.2.0]: https://github.com/DarksideWanderer/md-archive/releases/tag/v0.2.0

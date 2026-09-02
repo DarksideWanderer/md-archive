@@ -77,19 +77,19 @@ export class TagManager {
      */
     void rebuild_all_links();
 
-    /// @return Sorted tag names currently present under `.tags/`.
-    /// @return `.tags/` 下当前存在的已排序标签名。
+    /// @return Sorted explicit tags and their queryable parent categories.
+    /// @return 已排序的显式标签及可查询的父级分类。
     [[nodiscard]]
     std::vector<std::string> list_tags() const;
 
     /// @return Source document paths for one tag.
     /// @return 某个标签下对应的源文档路径。
     [[nodiscard]]
-    std::vector<std::filesystem::path> list_docs_for_tag(const std::string& tag) const;
+    std::vector<std::filesystem::path> list_docs_for_tag(const std::string& tag, bool exact = false) const;
 
     /// Return display titles together with their effective source or archive paths.
     [[nodiscard]]
-    std::vector<ListedDoc> list_doc_entries_for_tag(const std::string& tag) const;
+    std::vector<ListedDoc> list_doc_entries_for_tag(const std::string& tag, bool exact = false) const;
 
     /// @return Unique source document paths represented by all tags.
     /// @return 所有标签共同表示的去重源文档路径。
@@ -122,7 +122,7 @@ export class TagManager {
         std::vector<std::string> tags;
     };
     std::vector<DocInfo> collect_indexed_docs() const;
-    std::vector<DocInfo> collect_docs_for_tag(const std::string& tag) const;
+    std::vector<DocInfo> collect_docs_for_tag(const std::string& tag, bool exact) const;
 };
 
 namespace fs = std::filesystem;
@@ -211,6 +211,13 @@ std::string ascii_lower(std::string value) {
 
 bool contains_word(const std::string& text, const std::string& lowered_word) {
     return ascii_lower(text).find(lowered_word) != std::string::npos;
+}
+
+bool tag_matches(const std::string& document_tag, const std::string& requested_tag, bool exact) {
+    if (document_tag == requested_tag)
+        return true;
+    return !exact && document_tag.size() > requested_tag.size() && document_tag.starts_with(requested_tag) &&
+           document_tag[requested_tag.size()] == '/';
 }
 
 std::optional<fs::path> tag_entry_target(const fs::path& entry, const fs::path& tag_dir,
@@ -396,12 +403,14 @@ bool TagManager::create_tag_entry(const fs::path& archive_copy, const std::strin
     return true;
 }
 
-std::vector<TagManager::DocInfo> TagManager::collect_docs_for_tag(const std::string& tag) const {
+std::vector<TagManager::DocInfo> TagManager::collect_docs_for_tag(const std::string& tag, bool exact) const {
     std::vector<DocInfo> docs;
     if (!valid_tag_name(tag))
         return docs;
     for (auto& doc : collect_indexed_docs())
-        if (std::ranges::find(doc.tags, tag) != doc.tags.end())
+        if (std::ranges::any_of(doc.tags, [&](const std::string& document_tag) {
+                return tag_matches(document_tag, tag, exact);
+            }))
             docs.push_back(std::move(doc));
 
     std::sort(docs.begin(), docs.end(), [](const DocInfo& a, const DocInfo& b) { return a.title < b.title; });
@@ -788,13 +797,16 @@ std::vector<std::string> TagManager::list_tags() const {
     std::set<std::string> unique;
     for (const auto& doc : collect_indexed_docs())
         for (const auto& tag : doc.tags)
-            if (valid_tag_name(tag))
+            if (valid_tag_name(tag)) {
                 unique.insert(tag);
+                for (auto slash = tag.find('/'); slash != std::string::npos; slash = tag.find('/', slash + 1))
+                    unique.insert(tag.substr(0, slash));
+            }
     return {unique.begin(), unique.end()};
 }
 
-std::vector<fs::path> TagManager::list_docs_for_tag(const std::string& tag) const {
-    auto docs = collect_docs_for_tag(tag);
+std::vector<fs::path> TagManager::list_docs_for_tag(const std::string& tag, bool exact) const {
+    auto docs = collect_docs_for_tag(tag, exact);
     std::vector<fs::path> paths;
     for (const auto& doc : docs) {
         paths.push_back(cfg.workspace / doc.rel_path);
@@ -802,8 +814,9 @@ std::vector<fs::path> TagManager::list_docs_for_tag(const std::string& tag) cons
     return paths;
 }
 
-std::vector<TagManager::ListedDoc> TagManager::list_doc_entries_for_tag(const std::string& tag) const {
-    const auto docs = collect_docs_for_tag(tag);
+std::vector<TagManager::ListedDoc> TagManager::list_doc_entries_for_tag(const std::string& tag,
+                                                                        bool exact) const {
+    const auto docs = collect_docs_for_tag(tag, exact);
     std::vector<ListedDoc> result;
     result.reserve(docs.size());
     for (const auto& doc : docs)

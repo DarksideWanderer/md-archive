@@ -116,7 +116,7 @@ void print_usage(const char* prog) {
     std::cout << "  config path                显示实际使用的配置文件路径\n";
     std::cout << "  add <file.md> [-f]         归档一个 Markdown 文件\n";
     std::cout << "  scan [--force]             扫描工作区所有 .md 文件并归档\n";
-    std::cout << "  list [tag]                 列出所有标签，或列出某标签下的文档\n";
+    std::cout << "  list [-exact] [tag]        列出标签；默认包含子标签，-exact 仅精确匹配\n";
     std::cout << "  docs                       列出所有已归档文档\n";
     std::cout << "  search <word>              按标题或文件名搜索\n";
     std::cout << "  search -all <word>         搜索 Markdown 全文\n";
@@ -182,6 +182,21 @@ std::optional<fs::path> parse_file_arg(const std::vector<std::string>& args) {
         }
     }
     return std::nullopt;
+}
+
+std::string normalize_list_tag_arg(std::string tag) {
+#ifdef _WIN32
+    // MSYS2 may path-convert a relative `A/B` argument before a native program
+    // receives it. If that conversion produced an absolute path below the
+    // invocation directory, recover the original Unix-style tag spelling.
+    const fs::path converted = from_utf8(tag);
+    if (converted.is_absolute()) {
+        const auto relative = converted.lexically_normal().lexically_relative(fs::current_path());
+        if (!relative.empty() && *relative.begin() != "..")
+            return generic_to_utf8(relative);
+    }
+#endif
+    return tag;
 }
 
 } // namespace
@@ -281,10 +296,27 @@ int run_main(int argc, char* argv[]) {
     }
 
     if (cmd == "list") {
-        if (args.size() >= 2) {
-            std::string tag = args[1];
-            auto docs = tm.list_doc_entries_for_tag(tag);
-            std::cout << "标签 [" << tag << "] 下的文档:\n";
+        const bool exact = has_flag(args, "-exact", "--exact");
+        std::vector<std::string> list_args;
+        for (std::size_t i = 1; i < args.size(); ++i) {
+            if (args[i] == "-exact" || args[i] == "--exact")
+                continue;
+            if (args[i].starts_with("-")) {
+                std::cerr << "未知 list 参数: " << args[i] << "\n";
+                return exit_invalid_arguments;
+            }
+            list_args.push_back(args[i]);
+        }
+        if (list_args.size() > 1 || (exact && list_args.empty())) {
+            std::cerr << "用法: " << argv[0] << " list [-exact|--exact] [tag]\n";
+            return exit_invalid_arguments;
+        }
+
+        if (!list_args.empty()) {
+            std::string tag = normalize_list_tag_arg(list_args.front());
+            auto docs = tm.list_doc_entries_for_tag(tag, exact);
+            std::cout << "标签 [" << tag << "] 下的文档" << (exact ? "（精确匹配）" : "（包含子标签）")
+                      << ":\n";
             if (docs.empty()) {
                 std::cout << "  (无文档)\n";
             } else {

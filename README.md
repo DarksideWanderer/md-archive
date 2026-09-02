@@ -159,6 +159,7 @@ md-archive scan --force
 md-archive list
 md-archive list 算法
 md-archive list 图论/树
+md-archive list -exact 图论/树
 md-archive docs
 md-archive search Dijkstra
 md-archive search -all shortest-path
@@ -233,7 +234,7 @@ Windows 硬链接和 Git 检出的单行链接文件整理为当前平台可用�
 源文件存在时读取源文件的 frontmatter；源文件已被用户删除时改读哈希归档对象。
 
 It rebuilds `.tags/<tag>/<title>.md` document entries only; root-level
-`.tags/<tag>.md` overview pages are not part of v1.2.0 and obsolete ones are
+`.tags/<tag>.md` overview pages are not part of v1.2.1 and obsolete ones are
 removed. A missing source is not treated as an archive deletion: the recovered
 entry links directly to the durable object. Only the explicit
 `remove` command removes a source mapping and prunes an unreferenced object.
@@ -241,7 +242,7 @@ User-facing `list` and `docs` read the durable index directly and never expose
 hash-object paths. They therefore remain complete even if `.tags/` is missing
 or damaged; every indexed source path remains visible.
 
-它只重建 `.tags/<标签>/<标题>.md` 文档入口；v1.2.0 不再提供根级
+它只重建 `.tags/<标签>/<标题>.md` 文档入口；v1.2.1 不再提供根级
 `.tags/<标签>.md` 概览页，并会移除遗留概览页。源文件消失不等于删除归档：
 恢复出的入口会直接链接到持久归档对象。只有显式执行 `remove` 才会移除源路径映射，
 并在对象不再被引用时清理对象。
@@ -331,6 +332,8 @@ Windows and macOS rebuild behavior around directory-only tag entries, preserves
 all source-path aliases, and fixes hash filenames leaking into `list` output.
 `v1.2.0` adds portable hierarchical tags, index-backed listing, and
 name/full-text search.
+`v1.2.1` makes parent tag queries include descendants by default, adds exact
+matching, and handles MSYS2-converted tag arguments automatically.
 
 从 0.2.0 开始，每个发布版本都使用带说明的 Git 标签保留完整代码状态。
 `v0.2.0` 是引入哈希存储前的基线；1.0 引入哈希寻址归档格式和旧版自动迁移。
