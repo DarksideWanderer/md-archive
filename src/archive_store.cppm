@@ -27,7 +27,7 @@ class ArchiveStore {
     }
 
     std::optional<ArchiveRecord> store(const std::filesystem::path& source) {
-        auto hash = sha256_file(source);
+        auto hash = sha256_markdown_file(source);
         if (!hash)
             return std::nullopt;
 
@@ -40,7 +40,7 @@ class ArchiveStore {
         }
 
         std::error_code ec;
-        const auto stored_hash = sha256_file(result.object_path);
+        const auto stored_hash = sha256_markdown_file(result.object_path);
         if (!stored_hash || *stored_hash != *hash) {
             std::filesystem::create_directories(result.object_path.parent_path(), ec);
             if (ec)
@@ -53,7 +53,7 @@ class ArchiveStore {
                                        std::filesystem::copy_options::overwrite_existing, ec);
             if (ec)
                 return std::nullopt;
-            const auto copied_hash = sha256_file(temporary);
+            const auto copied_hash = sha256_markdown_file(temporary);
             if (!copied_hash || *copied_hash != *hash) {
                 std::filesystem::remove(temporary, ec);
                 return std::nullopt;
@@ -319,7 +319,7 @@ class ArchiveStore {
         bool changed = false;
         std::vector<std::filesystem::path> migrated_sources;
         for (const auto& path : legacy) {
-            auto hash = sha256_file(path);
+            auto hash = sha256_markdown_file(path);
             if (!hash)
                 continue;
             auto relative = std::filesystem::relative(path, root_, ec);

@@ -22,6 +22,12 @@ export class TagManager {
         std::string title;
         std::filesystem::path path;
     };
+    struct SearchResult {
+        std::string title;
+        std::filesystem::path path;
+        std::vector<std::string> tags;
+        std::string preview;
+    };
     /**
      * @brief Create a manager for one validated configuration.
      *
@@ -90,6 +96,10 @@ export class TagManager {
     [[nodiscard]]
     std::vector<std::filesystem::path> list_all_archived() const;
 
+    /// Search archived document names, or complete Markdown content when full_text is true.
+    [[nodiscard]]
+    std::vector<SearchResult> search(const std::string& word, bool full_text = false) const;
+
   private:
     Config cfg;
     std::filesystem::path tags_root;
@@ -99,8 +109,7 @@ export class TagManager {
     static std::string safe_filename(const std::string& title);
     std::optional<std::filesystem::path> copy_to_archive(const std::filesystem::path& md_file);
     bool create_tag_entry(const std::filesystem::path& archive_copy, const std::string& tag,
-                          const std::string& doc_title, bool force,
-                          bool report_forced_replacement = true);
+                          const std::string& doc_title, bool force, bool report_forced_replacement = true);
     void remove_root_tag_overview(const std::string& tag);
     void normalize_all_links(bool verbose);
     void restore_links_from_index();
@@ -109,7 +118,10 @@ export class TagManager {
         std::string title;
         std::filesystem::path rel_path;
         std::filesystem::path archive_rel_path;
+        std::filesystem::path content_path;
+        std::vector<std::string> tags;
     };
+    std::vector<DocInfo> collect_indexed_docs() const;
     std::vector<DocInfo> collect_docs_for_tag(const std::string& tag) const;
 };
 
@@ -138,27 +150,67 @@ bool is_within_directory(const fs::path& path, const fs::path& directory) {
 constexpr std::string_view target_marker = "<!-- md-archive-target: ";
 
 bool windows_reserved_component(std::string value) {
-    std::ranges::transform(value, value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::toupper(c));
-    });
+    std::ranges::transform(value, value.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     const auto dot = value.find('.');
     if (dot != std::string::npos)
         value.resize(dot);
     if (value == "CON" || value == "PRN" || value == "AUX" || value == "NUL")
         return true;
-    return value.size() == 4 &&
-           (value.starts_with("COM") || value.starts_with("LPT")) &&
-           value[3] >= '1' && value[3] <= '9';
+    return value.size() == 4 && (value.starts_with("COM") || value.starts_with("LPT")) && value[3] >= '1' &&
+           value[3] <= '9';
+}
+
+bool valid_tag_component(const std::string& component) {
+    if (component.empty() || component == "." || component == ".." || component.back() == ' ' ||
+        component.back() == '.' || windows_reserved_component(component))
+        return false;
+    constexpr std::string_view forbidden = "\\:*?\"<>|";
+    return std::ranges::none_of(component, [&](unsigned char c) {
+        return c < 0x20 || forbidden.find(static_cast<char>(c)) != std::string_view::npos;
+    });
+}
+
+std::optional<std::vector<std::string>> split_tag(const std::string& tag) {
+    std::vector<std::string> components;
+    std::size_t begin = 0;
+    while (begin <= tag.size()) {
+        const auto slash = tag.find('/', begin);
+        const auto component =
+            tag.substr(begin, slash == std::string::npos ? std::string::npos : slash - begin);
+        if (!valid_tag_component(component))
+            return std::nullopt;
+        components.push_back(component);
+        if (slash == std::string::npos)
+            break;
+        begin = slash + 1;
+    }
+    return components;
 }
 
 bool valid_tag_name(const std::string& tag) {
-    if (tag.empty() || tag == "." || tag == ".." || tag.back() == ' ' || tag.back() == '.' ||
-        windows_reserved_component(tag))
-        return false;
-    constexpr std::string_view forbidden = "/\\:*?\"<>|";
-    return std::ranges::none_of(tag, [&](unsigned char c) {
-        return c < 0x20 || forbidden.find(static_cast<char>(c)) != std::string_view::npos;
+    return split_tag(tag).has_value();
+}
+
+fs::path tag_directory(const fs::path& tags_root, const std::string& tag) {
+    fs::path result = tags_root;
+    const auto components = split_tag(tag);
+    if (!components)
+        return {};
+    for (const auto& component : *components)
+        result /= from_utf8(component);
+    return result;
+}
+
+std::string ascii_lower(std::string value) {
+    std::ranges::transform(value, value.begin(), [](unsigned char c) {
+        return c < 0x80 ? static_cast<char>(std::tolower(c)) : static_cast<char>(c);
     });
+    return value;
+}
+
+bool contains_word(const std::string& text, const std::string& lowered_word) {
+    return ascii_lower(text).find(lowered_word) != std::string::npos;
 }
 
 std::optional<fs::path> tag_entry_target(const fs::path& entry, const fs::path& tag_dir,
@@ -189,8 +241,7 @@ std::optional<fs::path> tag_entry_target(const fs::path& entry, const fs::path& 
     // A hard link is the privilege-free Windows fallback. Find the matching
     // archive file by comparing filesystem identities.
     if (!archive_root.empty() && fs::exists(archive_root)) {
-        fs::recursive_directory_iterator it(
-            archive_root, fs::directory_options::skip_permission_denied, ec);
+        fs::recursive_directory_iterator it(archive_root, fs::directory_options::skip_permission_denied, ec);
         const fs::recursive_directory_iterator end;
         for (; it != end; it.increment(ec)) {
             if (ec) {
@@ -290,9 +341,8 @@ std::optional<fs::path> TagManager::copy_to_archive(const fs::path& md_file) {
 }
 
 bool TagManager::create_tag_entry(const fs::path& archive_copy, const std::string& tag,
-                                  const std::string& doc_title, bool force,
-                                  bool report_forced_replacement) {
-    fs::path tag_dir = tags_root / from_utf8(tag);
+                                  const std::string& doc_title, bool force, bool report_forced_replacement) {
+    fs::path tag_dir = tag_directory(tags_root, tag);
     if (!fs::exists(tag_dir)) {
         fs::create_directories(tag_dir);
     }
@@ -348,60 +398,49 @@ bool TagManager::create_tag_entry(const fs::path& archive_copy, const std::strin
 
 std::vector<TagManager::DocInfo> TagManager::collect_docs_for_tag(const std::string& tag) const {
     std::vector<DocInfo> docs;
-    fs::path tag_dir = tags_root / from_utf8(tag);
-
-    if (!fs::exists(tag_dir))
+    if (!valid_tag_name(tag))
         return docs;
-
-    for (const auto& entry : fs::directory_iterator(tag_dir)) {
-        if (!entry.is_symlink() && !entry.is_regular_file())
-            continue;
-        if (entry.path().extension() != ".md")
-            continue;
-
-        DocInfo info;
-        info.title = to_utf8(entry.path().stem());
-
-        if (auto stored_target = tag_entry_target(entry.path(), tag_dir, archive_root)) {
-            fs::path abs_target = *stored_target;
-            std::error_code ec;
-            abs_target = fs::canonical(abs_target, ec);
-            if (ec)
-                abs_target = normalize_path(*stored_target);
-
-            if (is_within_directory(abs_target, archive_root)) {
-                if (auto hash = archive_store->hash_for_object(abs_target)) {
-                    auto sources = archive_store->sources_for_hash(*hash);
-                    // The object path is an internal storage detail. Keep the
-                    // tag entry linked to that durable object when necessary,
-                    // but expose the first indexed source path to list/docs,
-                    // even when that historical source no longer exists.
-                    if (!sources.empty())
-                        abs_target = sources.front();
-                } else {
-                    auto legacy_rel = abs_target.lexically_relative(archive_root);
-                    auto legacy_source = cfg.workspace / legacy_rel;
-                    if (fs::exists(legacy_source))
-                        abs_target = legacy_source;
-                }
-            }
-            info.rel_path = fs::relative(abs_target, cfg.workspace);
-            info.archive_rel_path = fs::relative(*stored_target, cfg.workspace);
-        } else {
-            info.rel_path = fs::relative(entry.path(), cfg.workspace);
-            info.archive_rel_path = info.rel_path;
-        }
-
-        docs.push_back(info);
-    }
+    for (auto& doc : collect_indexed_docs())
+        if (std::ranges::find(doc.tags, tag) != doc.tags.end())
+            docs.push_back(std::move(doc));
 
     std::sort(docs.begin(), docs.end(), [](const DocInfo& a, const DocInfo& b) { return a.title < b.title; });
 
     return docs;
 }
 
+std::vector<TagManager::DocInfo> TagManager::collect_indexed_docs() const {
+    std::vector<DocInfo> docs;
+    for (const auto& [source_key, hash] : archive_store->entries()) {
+        const fs::path source = cfg.workspace / from_utf8(source_key);
+        const fs::path archived = archive_store->object_for_hash(hash);
+        // The indexed object is the snapshot represented by this mapping. Use
+        // it for metadata and search even if the live source was later edited
+        // without `add --force`; fall back only for a recoverable legacy row.
+        const fs::path content = fs::exists(archived) ? archived : source;
+        if (!fs::exists(content) || content.extension() != ".md")
+            continue;
+        const auto meta = parse_frontmatter(content);
+        if (!meta.has_frontmatter || !meta.closed_frontmatter || !meta.has_title)
+            continue;
+        docs.push_back(
+            {meta.title, from_utf8(source_key), fs::relative(archived, cfg.workspace), content, meta.tags});
+    }
+    std::sort(docs.begin(), docs.end(), [](const DocInfo& a, const DocInfo& b) {
+        if (a.title != b.title)
+            return a.title < b.title;
+        return generic_to_utf8(a.rel_path) < generic_to_utf8(b.rel_path);
+    });
+    return docs;
+}
+
 void TagManager::remove_root_tag_overview(const std::string& tag) {
-    fs::path index_path = tags_root / from_utf8(tag + ".md");
+    // v1.0 overview pages only existed for flat tags. For a hierarchical tag,
+    // `.tags/A/B.md` may be a real document named B under tag A.
+    if (tag.find('/') != std::string::npos)
+        return;
+    fs::path index_path = tag_directory(tags_root, tag);
+    index_path += ".md";
     std::error_code ec;
     fs::remove(index_path, ec);
 }
@@ -437,14 +476,15 @@ std::vector<std::string> TagManager::archive(const fs::path& md_file, bool force
     }
     for (const auto& tag : meta.tags) {
         if (!valid_tag_name(tag)) {
-            std::cerr << "错误: 标签名不能包含路径分隔符、Windows 保留字符或保留名称: "
+            std::cerr << "错误: 层级标签必须使用 / 分隔，且每一段都不能是空值、.、..、Windows "
+                         "保留名或包含非法字符: "
                       << tag << "\n";
             return {};
         }
     }
 
     fs::path rel = fs::relative(source, cfg.workspace);
-    auto current_hash = md_archive::sha256_file(source);
+    auto current_hash = md_archive::sha256_markdown_file(source);
     if (!current_hash) {
         std::cerr << "错误: 无法读取文件并计算 SHA-256\n";
         return {};
@@ -460,36 +500,41 @@ std::vector<std::string> TagManager::archive(const fs::path& md_file, bool force
 
         std::set<std::string> affected_tags;
         if (fs::exists(tags_root)) {
-            for (const auto& tag_entry : fs::directory_iterator(tags_root)) {
-                if (!tag_entry.is_directory())
+            std::vector<fs::path> entries_to_remove;
+            std::error_code walk_error;
+            fs::recursive_directory_iterator it(tags_root, fs::directory_options::skip_permission_denied,
+                                                walk_error);
+            const fs::recursive_directory_iterator end;
+            for (; it != end; it.increment(walk_error)) {
+                if (walk_error) {
+                    walk_error.clear();
                     continue;
-                fs::path tag_dir = tag_entry.path();
-                for (const auto& link_entry : fs::directory_iterator(tag_dir)) {
-                    if (!link_entry.is_symlink() && !link_entry.is_regular_file())
-                        continue;
-                    std::error_code ec;
-                    auto target = tag_entry_target(link_entry.path(), tag_dir, archive_root);
-                    fs::path resolved = target ? normalize_path(*target) : fs::path{};
-                    bool belongs_to_source = resolved == source ||
-                                             fs::equivalent(link_entry.path(), source, ec);
-                    ec.clear();
-                    if (!belongs_to_source && target) {
-                        if (auto target_hash = archive_store->hash_for_object(*target)) {
-                            auto aliases = archive_store->sources_for_hash(*target_hash);
-                            belongs_to_source = *target_hash == *known_hash && aliases.size() == 1 &&
-                                                normalize_path(aliases.front()) == source;
-                        }
-                    }
-                    if (belongs_to_source) {
-                        fs::remove(link_entry.path(), ec);
-                        affected_tags.insert(to_utf8(tag_dir.filename()));
+                }
+                const auto& link_entry = *it;
+                if ((!link_entry.is_symlink() && !link_entry.is_regular_file()) ||
+                    link_entry.path().extension() != ".md")
+                    continue;
+                const fs::path tag_dir = link_entry.path().parent_path();
+                std::error_code ec;
+                auto target = tag_entry_target(link_entry.path(), tag_dir, archive_root);
+                fs::path resolved = target ? normalize_path(*target) : fs::path{};
+                bool belongs_to_source = resolved == source || fs::equivalent(link_entry.path(), source, ec);
+                ec.clear();
+                if (!belongs_to_source && target) {
+                    if (auto target_hash = archive_store->hash_for_object(*target)) {
+                        auto aliases = archive_store->sources_for_hash(*target_hash);
+                        belongs_to_source = *target_hash == *known_hash && aliases.size() == 1 &&
+                                            normalize_path(aliases.front()) == source;
                     }
                 }
-                if (fs::is_empty(tag_dir)) {
-                    std::error_code ec;
-                    fs::remove(tag_dir, ec);
+                if (belongs_to_source) {
+                    entries_to_remove.push_back(link_entry.path());
+                    affected_tags.insert(generic_to_utf8(tag_dir.lexically_relative(tags_root)));
                 }
             }
+            std::error_code ec;
+            for (const auto& entry : entries_to_remove)
+                fs::remove(entry, ec);
         }
         for (const auto& t : affected_tags) {
             remove_root_tag_overview(t);
@@ -562,7 +607,7 @@ void TagManager::remove(const fs::path& md_file) {
     for (const auto& tag : meta.tags) {
         if (!valid_tag_name(tag))
             continue;
-        fs::path tag_dir = tags_root / from_utf8(tag);
+        fs::path tag_dir = tag_directory(tags_root, tag);
         fs::path link_path = tag_dir / from_utf8(safe_title + ".md");
 
         std::error_code link_status_error;
@@ -646,43 +691,48 @@ void TagManager::normalize_all_links(bool verbose) {
     std::vector<PendingEntry> pending_entries;
 
     if (fs::exists(tags_root)) {
-        for (const auto& entry : fs::directory_iterator(tags_root)) {
-            if (entry.is_directory()) {
-                const std::string tag = to_utf8(entry.path().filename());
-                tags.insert(tag);
-                for (const auto& tag_entry : fs::directory_iterator(entry.path())) {
-                    if (!tag_entry.is_regular_file() && !tag_entry.is_symlink())
-                        continue;
-                    if (tag_entry.path().extension() != ".md")
-                        continue;
-                    if (auto target = tag_entry_target(tag_entry.path(), entry.path(), archive_root)) {
-                        fs::path desired = *target;
-                        if (is_within_directory(normalize_path(desired), archive_root)) {
-                            if (auto hash = archive_store->hash_for_object(desired)) {
-                                auto sources = archive_store->sources_for_hash(*hash);
-                                auto existing = std::ranges::find_if(
-                                    sources, [](const fs::path& path) { return fs::exists(path); });
-                                if (existing != sources.end())
-                                    desired = *existing;
-                            } else {
-                                auto legacy_rel = desired.lexically_relative(archive_root);
-                                auto legacy_source = cfg.workspace / legacy_rel;
-                                if (fs::exists(legacy_source))
-                                    desired = legacy_source;
-                            }
-                        }
-                        if (!fs::exists(desired))
-                            continue;
-                        std::error_code equivalent_error;
-                        if (fs::equivalent(tag_entry.path(), desired, equivalent_error) &&
-                            !equivalent_error)
-                            continue;
-                        if (tag_entry.is_symlink() && normalize_path(*target) == normalize_path(desired))
-                            continue;
-                        pending_entries.push_back(
-                            {desired, tag, to_utf8(tag_entry.path().stem())});
+        std::error_code walk_error;
+        fs::recursive_directory_iterator it(tags_root, fs::directory_options::skip_permission_denied,
+                                            walk_error);
+        const fs::recursive_directory_iterator end;
+        for (; it != end; it.increment(walk_error)) {
+            if (walk_error) {
+                walk_error.clear();
+                continue;
+            }
+            const auto& tag_entry = *it;
+            if ((!tag_entry.is_regular_file() && !tag_entry.is_symlink()) ||
+                tag_entry.path().extension() != ".md")
+                continue;
+            const auto tag_dir = tag_entry.path().parent_path();
+            const std::string tag = generic_to_utf8(tag_dir.lexically_relative(tags_root));
+            if (tag.empty() || !valid_tag_name(tag))
+                continue;
+            tags.insert(tag);
+            if (auto target = tag_entry_target(tag_entry.path(), tag_dir, archive_root)) {
+                fs::path desired = *target;
+                if (is_within_directory(normalize_path(desired), archive_root)) {
+                    if (auto hash = archive_store->hash_for_object(desired)) {
+                        auto sources = archive_store->sources_for_hash(*hash);
+                        auto existing = std::ranges::find_if(
+                            sources, [](const fs::path& path) { return fs::exists(path); });
+                        if (existing != sources.end())
+                            desired = *existing;
+                    } else {
+                        auto legacy_rel = desired.lexically_relative(archive_root);
+                        auto legacy_source = cfg.workspace / legacy_rel;
+                        if (fs::exists(legacy_source))
+                            desired = legacy_source;
                     }
                 }
+                if (!fs::exists(desired))
+                    continue;
+                std::error_code equivalent_error;
+                if (fs::equivalent(tag_entry.path(), desired, equivalent_error) && !equivalent_error)
+                    continue;
+                if (tag_entry.is_symlink() && normalize_path(*target) == normalize_path(desired))
+                    continue;
+                pending_entries.push_back({desired, tag, to_utf8(tag_entry.path().stem())});
             }
         }
     }
@@ -721,14 +771,12 @@ void TagManager::restore_links_from_index() {
         for (const auto& tag : meta.tags) {
             if (!valid_tag_name(tag))
                 continue;
-            const fs::path tag_dir = tags_root / from_utf8(tag);
+            const fs::path tag_dir = tag_directory(tags_root, tag);
             const fs::path link_path = tag_dir / from_utf8(safe_filename(meta.title) + ".md");
             std::error_code ec;
-            const bool missing_entry =
-                fs::symlink_status(link_path, ec).type() == fs::file_type::not_found;
-            const auto current_target =
-                missing_entry ? std::optional<fs::path>{}
-                              : tag_entry_target(link_path, tag_dir, archive_root);
+            const bool missing_entry = fs::symlink_status(link_path, ec).type() == fs::file_type::not_found;
+            const auto current_target = missing_entry ? std::optional<fs::path>{}
+                                                      : tag_entry_target(link_path, tag_dir, archive_root);
             const bool dangling_entry = current_target && !fs::exists(*current_target);
             if (missing_entry || dangling_entry)
                 create_tag_entry(document, tag, meta.title, false);
@@ -737,17 +785,12 @@ void TagManager::restore_links_from_index() {
 }
 
 std::vector<std::string> TagManager::list_tags() const {
-    std::vector<std::string> tags;
-    if (!fs::exists(tags_root))
-        return tags;
-
-    for (const auto& entry : fs::directory_iterator(tags_root)) {
-        if (entry.is_directory()) {
-            tags.push_back(to_utf8(entry.path().filename()));
-        }
-    }
-    std::sort(tags.begin(), tags.end());
-    return tags;
+    std::set<std::string> unique;
+    for (const auto& doc : collect_indexed_docs())
+        for (const auto& tag : doc.tags)
+            if (valid_tag_name(tag))
+                unique.insert(tag);
+    return {unique.begin(), unique.end()};
 }
 
 std::vector<fs::path> TagManager::list_docs_for_tag(const std::string& tag) const {
@@ -770,12 +813,37 @@ std::vector<TagManager::ListedDoc> TagManager::list_doc_entries_for_tag(const st
 
 std::vector<fs::path> TagManager::list_all_archived() const {
     std::set<fs::path> unique;
-    auto tags = list_tags();
-    for (const auto& tag : tags) {
-        auto docs = collect_docs_for_tag(tag);
-        for (const auto& doc : docs) {
-            unique.insert(cfg.workspace / doc.rel_path);
-        }
-    }
+    for (const auto& doc : collect_indexed_docs())
+        unique.insert(cfg.workspace / doc.rel_path);
     return std::vector<fs::path>(unique.begin(), unique.end());
+}
+
+std::vector<TagManager::SearchResult> TagManager::search(const std::string& word, bool full_text) const {
+    std::vector<SearchResult> results;
+    const auto lowered_word = ascii_lower(word);
+    for (const auto& doc : collect_indexed_docs()) {
+        const std::string filename = to_utf8(doc.rel_path.filename());
+        bool matched = contains_word(doc.title, lowered_word) || contains_word(filename, lowered_word);
+        std::string preview;
+        if (full_text) {
+            std::ifstream input(doc.content_path, std::ios::binary);
+            std::string line;
+            while (std::getline(input, line)) {
+                if (!contains_word(line, lowered_word))
+                    continue;
+                matched = true;
+                if (!preview.empty())
+                    continue;
+                while (!line.empty() && line.back() == '\r')
+                    line.pop_back();
+                const auto first = line.find_first_not_of(" \t");
+                preview = first == std::string::npos ? std::string{} : line.substr(first);
+                if (preview.size() > 120)
+                    preview = preview.substr(0, 117) + "...";
+            }
+        }
+        if (matched)
+            results.push_back({doc.title, cfg.workspace / doc.rel_path, doc.tags, preview});
+    }
+    return results;
 }

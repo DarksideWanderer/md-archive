@@ -27,6 +27,12 @@ if(NOT source_index MATCHES "notes/deleted-source.md" OR
    NOT source_index MATCHES "notes/deleted-source-copy.md")
     message(FATAL_ERROR "index did not retain every source path sharing one hash")
 endif()
+string(REGEX MATCH "([0-9a-f]+) \"notes/deleted-source-copy[.]md\""
+       copy_index_row "${source_index}")
+set(shared_hash "${CMAKE_MATCH_1}")
+if(shared_hash STREQUAL "")
+    message(FATAL_ERROR "could not read the platform-specific shared hash from index.tsv")
+endif()
 
 # Updating only one of two same-hash paths must split the mappings without
 # damaging the other path's object or tag entry.
@@ -41,11 +47,11 @@ if(NOT update_result EQUAL 0)
 endif()
 file(READ "${workspace}/.archive/index.tsv" split_index)
 if(NOT split_index MATCHES
-       "4bf2b6876c07eda2d8da533b9ee6d787208c854531f264b3092a80a5bf88b1e6 \"notes/deleted-source-copy.md\"")
+       "${shared_hash} \"notes/deleted-source-copy.md\"")
     message(FATAL_ERROR "updating A changed or removed B's old-hash mapping")
 endif()
 if(split_index MATCHES
-   "4bf2b6876c07eda2d8da533b9ee6d787208c854531f264b3092a80a5bf88b1e6 \"notes/deleted-source.md\"")
+   "${shared_hash} \"notes/deleted-source.md\"")
     message(FATAL_ERROR "updated A incorrectly remained on the shared old hash")
 endif()
 file(GLOB_RECURSE split_objects "${workspace}/.archive/objects/*.md")
@@ -111,8 +117,8 @@ execute_process(
 if(NOT list_result EQUAL 0)
     message(FATAL_ERROR "list failed: ${list_error}")
 endif()
-if(NOT list_output MATCHES "Recover From Archive" OR
-   list_output MATCHES "4bf2b6876c07eda2d8da533b9ee6d787208c854531f264b3092a80a5bf88b1e6.md ->")
+string(FIND "${list_output}" "${shared_hash}.md ->" leaked_hash_path)
+if(NOT list_output MATCHES "Recover From Archive" OR NOT leaked_hash_path EQUAL -1)
     message(FATAL_ERROR "list displayed the object hash instead of the title:\n${list_output}")
 endif()
 if(NOT list_output MATCHES "notes[/\\\\]deleted-source-copy.md")

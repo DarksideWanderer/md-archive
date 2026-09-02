@@ -57,28 +57,46 @@ void transform(std::array<std::uint32_t, 8>& state, const std::array<std::uint8_
 
 using namespace hash_detail;
 
-std::optional<std::string> sha256_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input)
-        return std::nullopt;
-
+std::optional<std::string> sha256_stream(std::istream& input, bool normalize_newlines) {
     std::array<std::uint32_t, 8> state = {0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u,
                                           0xa54ff53au, 0x510e527fu, 0x9b05688cu,
                                           0x1f83d9abu, 0x5be0cd19u};
     std::array<std::uint8_t, 64> block{};
     std::uint64_t byte_count = 0;
     std::size_t used = 0;
-    char ch{};
-    while (input.get(ch)) {
-        block[used++] = static_cast<std::uint8_t>(static_cast<unsigned char>(ch));
+    const auto feed = [&](unsigned char byte) {
+        block[used++] = static_cast<std::uint8_t>(byte);
         ++byte_count;
         if (used == block.size()) {
             transform(state, block);
             used = 0;
         }
+    };
+
+    char ch{};
+    bool pending_cr = false;
+    while (input.get(ch)) {
+        const auto byte = static_cast<unsigned char>(ch);
+        if (!normalize_newlines) {
+            feed(byte);
+        } else if (byte == '\r') {
+            if (pending_cr)
+                feed('\n');
+            pending_cr = true;
+        } else if (byte == '\n') {
+            feed('\n');
+            pending_cr = false;
+        } else {
+            if (pending_cr)
+                feed('\n');
+            pending_cr = false;
+            feed(byte);
+        }
     }
     if (!input.eof())
         return std::nullopt;
+    if (normalize_newlines && pending_cr)
+        feed('\n');
     block[used++] = 0x80;
     if (used > 56) {
         std::fill(block.begin() + static_cast<std::ptrdiff_t>(used), block.end(), 0);
@@ -96,6 +114,24 @@ std::optional<std::string> sha256_file(const std::filesystem::path& path) {
     for (const auto word : state)
         output << std::setw(8) << word;
     return output.str();
+}
+
+std::optional<std::string> hash_file(const std::filesystem::path& path,
+                                     bool normalize_newlines) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return std::nullopt;
+    return sha256_stream(input, normalize_newlines);
+}
+
+std::optional<std::string> sha256_file(const std::filesystem::path& path) {
+    return hash_file(path, false);
+}
+
+// Markdown archive identity is text-content identity. Treat CRLF, LF, and
+// classic CR as the same newline so Git checkout policy cannot change hashes.
+std::optional<std::string> sha256_markdown_file(const std::filesystem::path& path) {
+    return hash_file(path, true);
 }
 
 } // namespace md_archive

@@ -1,0 +1,5 @@
+# Durable objects must retain their archived bytes across checkouts.
+.archive/objects/** -text
+
+# Keep the portable mapping stable and readable on every platform.
+.archive/index.tsv text eol=lf
