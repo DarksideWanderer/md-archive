@@ -13,6 +13,8 @@ md-archive add <file.md> [--force]
 md-archive scan [--force]
 md-archive list [tag]
 md-archive docs
+md-archive search <word>
+md-archive search -all <word>
 md-archive remove <file.md>
 md-archive rebuild
 ```
@@ -57,6 +59,15 @@ md-archive rebuild
 
 `docs`：列出已归档文档。
 
+`search <word>`: case-insensitively match ASCII text in frontmatter titles and
+source filenames. `search -all <word>` (also `--all`) searches the complete
+Markdown file and shows the first matching line. Interactive terminals use
+color to distinguish titles, paths, tags, and previews; redirected output stays plain.
+
+`search <word>`：按 frontmatter 标题和源文件名搜索（ASCII 字母不区分大小写）。
+`search -all <word>`（也支持 `--all`）搜索 Markdown 全文并显示首个匹配行。
+交互式终端会用颜色区分标题、路径、标签和预览；重定向输出不含颜色码。
+
 `remove <file.md>`: remove its tag links and source mapping; delete the content object only when no other source path references it.
 
 `remove <file.md>`：移除对应标签链接和源路径映射；仅在没有其他源路径引用时删除内容对象。
@@ -71,21 +82,33 @@ the source when present and the durable hash object when the source was deleted.
 ### Rebuild guarantees / Rebuild 保证
 
 - `.archive/index.tsv` and `.archive/objects/` are the durable source of truth.
-- `.tags/<tag>/<title>.md` is the only tag view. Root overview files are not generated.
+- `.tags/<tag>/<title>.md` is the only tag view. Hierarchical tags use nested
+  directories, for example `.tags/图论/树/<title>.md`.
 - Deleting a source file directly does not delete its archive record. `rebuild`
   recovers the directory entry from the indexed object and links it to that object.
 - Only `remove` deletes a source mapping and may prune an unreferenced object.
 - `rebuild` does not re-hash sources, change mappings, or delete archive objects.
-- `list` and `docs` display the first indexed source path for a hash, never the
-  internal `.archive/objects/<hash>.md` path.
+- `list`, `docs`, and `search` enumerate the durable index rather than `.tags`,
+  so a missing derived view cannot hide archived documents.
 
 - `.archive/index.tsv` 和 `.archive/objects/` 是持久事实来源。
-- `.tags/<标签>/<标题>.md` 是唯一标签视图；不生成根级概览文件。
+- `.tags/<标签>/<标题>.md` 是唯一标签视图；层级标签会成为嵌套目录，例如
+  `.tags/图论/树/<标题>.md`。
 - 直接删除源文件不会删除归档记录；`rebuild` 会从索引对象恢复目录入口并链接到该对象。
 - 只有 `remove` 会删除源路径映射，并可能清理不再被引用的对象。
 - `rebuild` 不会重新计算源文件 hash、改变映射或删除归档对象。
-- `list` 和 `docs` 对同一 hash 显示索引中的第一条源路径，绝不显示内部
-  `.archive/objects/<hash>.md` 路径。
+- `list`、`docs` 和 `search` 从持久索引而不是 `.tags` 枚举，因此派生视图缺失也不会隐藏文档。
+
+### Hierarchical tags / 层级标签
+
+Tag syntax always uses the Unix separator `/`, including on Windows. `list`
+prints and accepts the same form: `md-archive list A/B/C`. Each component must
+be a portable filename: empty components, `.`, `..`, backslashes, control
+characters, Windows reserved characters/names, and trailing spaces or dots are rejected.
+
+标签语法在 Windows、Linux 和 macOS 上一律使用 Unix 风格的 `/`。`list` 的输出和查询
+同样使用该形式，例如 `md-archive list A/B/C`。每一段都必须是跨平台安全文件名；空段、
+`.`、`..`、反斜杠、控制字符、Windows 保留字符/名称以及末尾空格或点都会被拒绝。
 
 `整理标签` means a link representation was repaired. It
 does not mean that archived Markdown content was forcibly overwritten.

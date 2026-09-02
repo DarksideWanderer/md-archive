@@ -1,6 +1,10 @@
 #ifdef _WIN32
+// clang-format off: shellapi.h depends on declarations from windows.h.
 #include <windows.h>
 #include <shellapi.h>
+// clang-format on
+#else
+#include <unistd.h>
 #endif
 
 import std;
@@ -11,14 +15,15 @@ import md_archive.tag_manager;
 namespace fs = std::filesystem;
 
 using md_archive::path_encoding::from_utf8;
+using md_archive::path_encoding::generic_to_utf8;
 using md_archive::path_encoding::to_utf8;
 
 #ifdef _WIN32
 std::string wide_to_utf8(std::wstring_view value) {
     if (value.empty())
         return {};
-    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                                         nullptr, 0, nullptr, nullptr);
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0,
+                                         nullptr, nullptr);
     if (size <= 0)
         throw std::runtime_error("无法将 Windows 命令行转换为 UTF-8");
     std::string result(static_cast<std::size_t>(size), '\0');
@@ -54,6 +59,43 @@ constexpr int exit_filesystem_error = 4;
 
 constexpr const char* version = MD_ARCHIVE_VERSION;
 
+struct Colors {
+    bool enabled = false;
+    std::string_view reset() const {
+        return enabled ? "\x1b[0m" : "";
+    }
+    std::string_view bold() const {
+        return enabled ? "\x1b[1m" : "";
+    }
+    std::string_view green() const {
+        return enabled ? "\x1b[32m" : "";
+    }
+    std::string_view cyan() const {
+        return enabled ? "\x1b[36m" : "";
+    }
+    std::string_view yellow() const {
+        return enabled ? "\x1b[33m" : "";
+    }
+    std::string_view dim() const {
+        return enabled ? "\x1b[2m" : "";
+    }
+};
+
+Colors terminal_colors() {
+    Colors colors;
+    if (std::getenv("NO_COLOR"))
+        return colors;
+#ifdef _WIN32
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    colors.enabled = output != INVALID_HANDLE_VALUE && GetConsoleMode(output, &mode) &&
+                     SetConsoleMode(output, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#else
+    colors.enabled = isatty(STDOUT_FILENO) != 0;
+#endif
+    return colors;
+}
+
 struct ParsedArgs {
     ConfigOptions config_options;
     std::vector<std::string> command_args;
@@ -76,6 +118,8 @@ void print_usage(const char* prog) {
     std::cout << "  scan [--force]             扫描工作区所有 .md 文件并归档\n";
     std::cout << "  list [tag]                 列出所有标签，或列出某标签下的文档\n";
     std::cout << "  docs                       列出所有已归档文档\n";
+    std::cout << "  search <word>              按标题或文件名搜索\n";
+    std::cout << "  search -all <word>         搜索 Markdown 全文\n";
     std::cout << "  remove <file.md>           从归档中移除文件\n";
     std::cout << "  rebuild                    整理标签符号链接并清理旧索引\n";
 }
@@ -245,12 +289,12 @@ int run_main(int argc, char* argv[]) {
                 std::cout << "  (无文档)\n";
             } else {
                 for (std::size_t i = 0; i < docs.size(); ++i) {
-                    std::cout << "  " << (i + 1) << ". " << docs[i].title << " -> "
-                              << to_utf8(docs[i].path) << "\n";
+                    std::cout << "  " << (i + 1) << ". " << docs[i].title << " -> " << to_utf8(docs[i].path)
+                              << "\n";
                 }
                 std::cout << "\n共 " << docs.size() << " 篇\n";
-                std::cout << "标签目录: "
-                          << to_utf8(cfg->workspace / cfg->tags_dir / from_utf8(tag)) << "\n";
+                std::cout << "标签目录: " << generic_to_utf8(cfg->workspace / cfg->tags_dir) << "/" << tag
+                          << "\n";
             }
         } else {
             auto tags = tm.list_tags();
@@ -263,7 +307,7 @@ int run_main(int argc, char* argv[]) {
                     std::cout << "  " << (i + 1) << ". " << tags[i] << " (" << docs.size() << " 篇)\n";
                 }
                 std::cout << "\n共 " << tags.size() << " 个标签\n";
-                std::cout << "标签目录: " << to_utf8(cfg->workspace / cfg->tags_dir) << "\n";
+                std::cout << "标签目录: " << generic_to_utf8(cfg->workspace / cfg->tags_dir) << "\n";
             }
         }
         return exit_success;
@@ -280,6 +324,48 @@ int run_main(int argc, char* argv[]) {
                 std::cout << "  " << (i + 1) << ". " << to_utf8(rel) << "\n";
             }
             std::cout << "\n共 " << docs.size() << " 篇\n";
+        }
+        return exit_success;
+    }
+
+    if (cmd == "search") {
+        const bool full_text = has_flag(args, "-all") || has_flag(args, "--all");
+        std::vector<std::string> words;
+        for (std::size_t i = 1; i < args.size(); ++i)
+            if (args[i] != "-all" && args[i] != "--all")
+                words.push_back(args[i]);
+        if (words.size() != 1 || words.front().empty()) {
+            std::cerr << "用法: " << argv[0] << " search [-all|--all] <word>\n";
+            return exit_invalid_arguments;
+        }
+
+        const auto colors = terminal_colors();
+        const auto results = tm.search(words.front(), full_text);
+        std::cout << colors.bold() << (full_text ? "全文搜索" : "名称搜索") << colors.reset() << ": "
+                  << colors.yellow() << words.front() << colors.reset() << "\n\n";
+        if (results.empty()) {
+            std::cout << "  (没有匹配的文档)\n";
+        } else {
+            for (std::size_t i = 0; i < results.size(); ++i) {
+                const auto rel = fs::relative(results[i].path, cfg->workspace);
+                std::cout << colors.green() << colors.bold() << "  " << (i + 1) << ". " << results[i].title
+                          << colors.reset() << "\n"
+                          << colors.dim() << "     路径  " << to_utf8(rel) << colors.reset() << "\n";
+                if (!results[i].tags.empty()) {
+                    std::cout << colors.cyan() << "     标签  ";
+                    for (std::size_t j = 0; j < results[i].tags.size(); ++j) {
+                        if (j)
+                            std::cout << ", ";
+                        std::cout << results[i].tags[j];
+                    }
+                    std::cout << colors.reset() << "\n";
+                }
+                if (!results[i].preview.empty())
+                    std::cout << colors.yellow() << "     匹配  " << results[i].preview << colors.reset()
+                              << "\n";
+                std::cout << "\n";
+            }
+            std::cout << "共 " << results.size() << " 篇匹配\n";
         }
         return exit_success;
     }
