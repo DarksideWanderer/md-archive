@@ -4,6 +4,10 @@
 
 `md-archive` is a lightweight C++ CLI that builds a durable Markdown archive and tag navigation system from YAML frontmatter `tags` and `title`.
 
+See [CHANGELOG.md](CHANGELOG.md) for release notes and upgrade details.
+
+版本更新内容与升级说明见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## Features / 功能特性
 
 - Stores one SHA-256-addressed backup object per unique Markdown content.
