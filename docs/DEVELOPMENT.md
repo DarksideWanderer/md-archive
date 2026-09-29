@@ -2,7 +2,7 @@
 
 ## Recommended Environment / 推荐环境
 
-- macOS or Linux / macOS 或 Linux
+- Windows with MSYS2 UCRT64, macOS or Linux / Windows（MSYS2 UCRT64）、macOS 或 Linux
 - Clang 18.1.2+ with `import std;` support / 支持 `import std;` 的 Clang 18.1.2+
 - CMake 4.3+ / CMake 4.3+
 - Ninja 1.11+ / Ninja 1.11+
@@ -36,6 +36,32 @@ The CLI version printed by `md-archive --version` comes from `project(... VERSIO
 `md-archive --version` 打印的 CLI 版本来自 `CMakeLists.txt` 中的 `project(... VERSION ...)`。CMake 会把它作为 `MD_ARCHIVE_VERSION` 注入到 `src/main.cpp`。
 
 ## Configure and Build / 配置与构建
+
+### Windows: UCRT64
+
+Use `make test` in MSYS2 zsh/bash. The Makefile selects UCRT64 tools and libc++, builds in `build/ucrt64`, and exports the compilation database to the repository root. `make install` installs to `/ucrt64/bin`; `make uninstall` uses `build/ucrt64/install_manifest.txt`.
+
+Windows 下在 MSYS2 zsh/bash 中执行 `make test` 即可。Makefile 自动选择 UCRT64 工具链和 libc++，使用独立的 `build/ucrt64` 目录，并更新根目录编译数据库。`make install` 安装到 `/ucrt64/bin`，`make uninstall` 使用新构建目录的安装清单。
+
+Equivalent direct commands / 等效的直接构建命令：
+
+```bash
+export PATH="/ucrt64/bin:$PATH"
+/ucrt64/bin/cmake.exe -S . -B build/ucrt64 -G Ninja \
+  -DCMAKE_CXX_COMPILER="$(cygpath -m /ucrt64/bin/clang++.exe)" \
+  -DCMAKE_MAKE_PROGRAM="$(cygpath -m /ucrt64/bin/ninja.exe)" \
+  -DCMAKE_CXX_STDLIB_MODULES_JSON="$(cygpath -m /ucrt64/lib/libc++.modules.json)" \
+  -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+  -DCMAKE_INSTALL_PREFIX="$(cygpath -m /ucrt64)" \
+  -DCMAKE_BUILD_TYPE=Release &&
+/ucrt64/bin/cmake.exe --build build/ucrt64 &&
+/ucrt64/bin/ctest.exe --test-dir build/ucrt64 --output-on-failure
+```
+
+When using direct CMake commands, also copy `build/ucrt64/compile_commands.json` to the repository root for clangd. The generic `build` commands below apply to macOS/Linux.
+
+直接使用 CMake 时，将 `build/ucrt64/compile_commands.json` 复制到根目录供 clangd 使用；下文使用 `build` 的通用示例适用于 macOS/Linux。
+
 
 Debug:
 

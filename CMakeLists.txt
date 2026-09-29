@@ -15,6 +15,7 @@ if(NOT DEFINED CMAKE_CXX_STDLIB_MODULES_JSON)
         set(_md_archive_compiler_hint "$ENV{CXX}")
     endif()
     if(NOT _md_archive_compiler_hint)
+        unset(_md_archive_compiler_hint)
         find_program(_md_archive_compiler_hint NAMES clang++)
     endif()
 
@@ -29,13 +30,16 @@ if(NOT DEFINED CMAKE_CXX_STDLIB_MODULES_JSON)
             get_filename_component(_md_archive_compiler_realpath "${_md_archive_compiler_path}" REALPATH)
             get_filename_component(_md_archive_compiler_bindir "${_md_archive_compiler_realpath}" DIRECTORY)
             get_filename_component(_md_archive_llvm_prefix "${_md_archive_compiler_bindir}" DIRECTORY)
-            set(_md_archive_libcxx_modules_json
-                "${_md_archive_llvm_prefix}/lib/c++/libc++.modules.json")
-            if(EXISTS "${_md_archive_libcxx_modules_json}")
-                set(CMAKE_CXX_STDLIB_MODULES_JSON
-                    "${_md_archive_libcxx_modules_json}"
-                    CACHE FILEPATH "Path to libc++ standard library module metadata")
-            endif()
+            foreach(_md_archive_libcxx_modules_json IN ITEMS
+                "${_md_archive_llvm_prefix}/lib/c++/libc++.modules.json"
+                "${_md_archive_llvm_prefix}/lib/libc++.modules.json")
+                if(EXISTS "${_md_archive_libcxx_modules_json}")
+                    set(CMAKE_CXX_STDLIB_MODULES_JSON
+                        "${_md_archive_libcxx_modules_json}"
+                        CACHE FILEPATH "Path to libc++ standard library module metadata")
+                    break()
+                endif()
+            endforeach()
         endif()
     endif()
 endif()
