@@ -97,14 +97,28 @@ Uninstall removes files recorded by CMake's `install_manifest.txt`:
 make uninstall
 ```
 
-The Makefile keeps MSYS2's `/usr/bin/cmake`, installs to `/usr`
-(`/usr/bin/md-archive.exe`), and uses only the CLANG64 compiler/runtime from
-`/clang64/bin`. On macOS/Linux it uses `cmake` from `PATH` and installs to
-`/usr/local`. Override with `make install INSTALL_PREFIX=/your/prefix`.
+### Windows / MSYS2 UCRT64
 
-Makefile 会安装到平台对应的 Unix 前缀：MSYS2 使用 `/usr`
-（即 `/usr/bin/md-archive.exe`），macOS/Linux 使用 `/usr/local`。可通过
-`make install INSTALL_PREFIX=/your/prefix` 覆盖。
+Use UCRT64 Clang, libc++, CMake and Ninja together. zsh or bash can be used as the shell. Install the native dependencies once:
+
+在 MSYS2 中统一使用 UCRT64 的 Clang、libc++、CMake 和 Ninja；shell 可继续使用 zsh。安装依赖：
+
+```bash
+pacman -S --needed mingw-w64-ucrt-x86_64-clang \
+  mingw-w64-ucrt-x86_64-clang-tools-extra \
+  mingw-w64-ucrt-x86_64-libc++ \
+  mingw-w64-ucrt-x86_64-cmake \
+  mingw-w64-ucrt-x86_64-ninja make
+
+make test
+make run ARGS="--help"
+# Optional / 可选：安装到 /ucrt64/bin
+make install
+```
+
+The Makefile selects `/ucrt64/bin` tools, passes `-stdlib=libc++`, and builds in `build/ucrt64` so previous toolchain caches are not reused. It installs to `/ucrt64` by default and copies the compilation database to the repository root for clangd. On macOS/Linux, the defaults remain `build` and `/usr/local`. Override the installation directory with `make install INSTALL_PREFIX=/your/prefix`.
+
+Makefile 使用 UCRT64 原生工具和 `-stdlib=libc++`，构建目录为 `build/ucrt64`，避免复用旧工具链缓存；默认安装到 `/ucrt64/bin/md-archive.exe`。编译数据库会复制到项目根目录供 clangd 使用。macOS/Linux 仍使用 `build` 和 `/usr/local`。可通过 `INSTALL_PREFIX` 覆盖安装目录。
 
 ## Configuration / 配置
 
